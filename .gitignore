@@ -1,0 +1,11 @@
+.flox/cache/
+.flox/run/
+.flox/log/
+__pycache__/
+*.pyc
+.pytest_cache/
+build/
+dist/
+*.egg-info/
+tests/fixtures/real/
+out/

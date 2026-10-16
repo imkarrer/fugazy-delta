@@ -1,0 +1,26 @@
+schema-version = "1.16.0"
+
+[install]
+python312.pkg-path = "python312"
+uv.pkg-path = "uv"
+ffmpeg.pkg-path = "ffmpeg"
+dejavu_fonts.pkg-path = "dejavu_fonts"
+
+[vars]
+
+[hook]
+on-activate = '''
+  export UV_CACHE_DIR="$FLOX_ENV_CACHE/uv-cache"
+  export UV_PROJECT_ENVIRONMENT="$FLOX_ENV_CACHE/venv"
+  venv="$UV_PROJECT_ENVIRONMENT"
+  stamp="$FLOX_ENV_CACHE/.deps-$(cat "$FLOX_ENV_PROJECT/pyproject.toml" "$FLOX_ENV_PROJECT/uv.lock" 2>/dev/null | shasum | cut -c1-12)"
+  if [ ! -f "$stamp" ]; then
+    (cd "$FLOX_ENV_PROJECT" && uv sync --quiet --python "$(command -v python3)") && rm -f "$FLOX_ENV_CACHE"/.deps-* && touch "$stamp"
+  fi
+  if [ -f "$venv/bin/activate" ]; then
+    source "$venv/bin/activate"
+  fi
+'''
+
+[options]
+systems = ["aarch64-darwin", "x86_64-darwin", "aarch64-linux", "x86_64-linux"]
