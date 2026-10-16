@@ -50,6 +50,34 @@ on the user's device until they choose to send it for rendering.
 Before any backend work, a clickable prototype on fake data goes in front
 of 3–5 people at an event, to see where the GoPro step loses them.
 
+### Three setups, one upload
+
+A RaceBox is optional. Most club members own a GoPro and no RaceBox, so
+GoPro only is a full setup, not a fallback. The mix of files decides the
+setup (`fugazy_delta/session.py`), and the results page labels each
+feature as full, approximate or unavailable, with the reason and what
+adding a device would unlock.
+
+| Feature | GoPro only | GoPro + RaceBox | RaceBox only |
+|---|---|---|---|
+| Lap and run times | Approximate (estimated ±0.1 s) | Full | Full |
+| Video overlay | Full | Full | Unavailable |
+| Delta, optimal lap | Approximate | Full | Full |
+| Racing line comparison | Unavailable | Full | Full |
+
+The ratings rest on the receivers' position error, not their sample rate.
+The app interpolates the moment the car crosses a line between two fixes,
+so 18 Hz against 25 Hz moves that moment very little; a position error
+moves it by the error divided by the car's speed. GoPro rates the HERO9's
+receiver at 2 m CEP, meaning half its fixes fall within 2 m of the true
+position; the RaceBox's error is about 0.6 m. At 30 m/s a 2 m error shifts a
+crossing by about 0.07 s, and a lap time takes two crossings, hence the
+±0.1 s estimate. The simulator models both receivers (`HERO9_NOISE`,
+`RACEBOX_NOISE` in `fugazy_delta/devices.py`) and
+`tests/test_device_noise.py` pins each to its rating. The timing figures in
+the table become tests once segmentation exists; until then they are
+estimates.
+
 ## 2. The system
 
 ```mermaid

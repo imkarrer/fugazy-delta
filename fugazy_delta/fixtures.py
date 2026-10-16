@@ -15,7 +15,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .devices import GnssNoise, racebox_mini
+from .devices import HERO9_NOISE, RACEBOX_NOISE, GnssNoise, racebox_mini
 from .gpmf import CameraClock, hero9_payloads
 from .mp4 import add_gpmd_track
 from .sim import Truth
@@ -68,12 +68,14 @@ def gopro_mp4(
     record_seconds: float,
     clock: CameraClock = CameraClock(),
     seed: int = 0,
+    noise: GnssNoise = HERO9_NOISE,
+    gps_fix: int = 3,
 ) -> list:
     """Write a HERO9-like MP4 recorded from `record_start` (s after utc0).
 
     Returns the payloads written, for tests to compare against.
     """
-    payloads = hero9_payloads(truth, record_start, record_seconds, clock, seed=seed)
+    payloads = hero9_payloads(truth, record_start, record_seconds, clock, seed=seed, noise=noise, gps_fix=gps_fix)
     utc_start = truth.utc0 + record_start
     with tempfile.TemporaryDirectory() as tmp:
         video = Path(tmp) / "video.mp4"
@@ -82,6 +84,6 @@ def gopro_mp4(
     return payloads
 
 
-def racebox_vbo(truth: Truth, path: str | Path, noise: GnssNoise = GnssNoise(), seed: int = 0) -> None:
+def racebox_vbo(truth: Truth, path: str | Path, noise: GnssNoise = RACEBOX_NOISE, seed: int = 0) -> None:
     """Write what a RaceBox Mini session exports as VBO."""
     write_vbo(racebox_mini(truth, noise, seed), path, comment="Simulated RaceBox Mini")

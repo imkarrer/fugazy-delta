@@ -27,6 +27,7 @@ from datetime import datetime, timezone
 
 import numpy as np
 
+from .devices import HERO9_NOISE, GnssNoise, gnss_fixes
 from .model import G, Telemetry
 from .sim import Truth
 
@@ -168,6 +169,8 @@ def hero9_payloads(
     accl_hz: float = 200.0,
     payload_seconds: float = 1.001,
     seed: int = 0,
+    noise: GnssNoise = HERO9_NOISE,
+    gps_fix: int = 3,
 ) -> list[Payload]:
     """GPMF payloads a HERO9 would write while recording.
 
@@ -177,18 +180,24 @@ def hero9_payloads(
     mounted HERO9 file): ORIN "ZXY", camera facing forward and level, so the
     three stored components are (vertical incl. gravity, longitudinal,
     lateral) in m/s².
+
+    GPS fixes carry `noise` (the HERO9 profile unless a test asks otherwise),
+    as one continuous error series across the whole recording. `gps_fix` is
+    written as GPSF: 0 means no fix, 2 a 2D fix, 3 a 3D fix.
     """
     rng = np.random.default_rng(seed)
     payloads = []
     n_payloads = int(record_seconds // payload_seconds)
+    n_gps = round(gps_hz * payload_seconds)
+    n_accl = round(accl_hz * payload_seconds)
+    t_all = record_start + np.arange(n_payloads * n_gps) * payload_seconds / n_gps
+    fixes = gnss_fixes(truth, truth.utc0 + t_all, noise, rng)
     gps_total = accl_total = 0
     for p in range(n_payloads):
         start = p * payload_seconds
-        n_gps = round(gps_hz * payload_seconds)
-        n_accl = round(accl_hz * payload_seconds)
-        t_gps = record_start + start + np.arange(n_gps) * payload_seconds / n_gps
+        t_gps = t_all[p * n_gps:(p + 1) * n_gps]
         t_accl = record_start + start + np.arange(n_accl) * payload_seconds / n_accl
-        g = truth.at(t_gps)
+        g = {k: fixes[k][p * n_gps:(p + 1) * n_gps] for k in ("lat", "lon", "speed")}
         a = truth.at(t_accl)
         speed3d = g["speed"]
         gps5 = np.column_stack([
@@ -209,7 +218,7 @@ def hero9_payloads(
             numbers("STMP", "J", [[stmp_us]]),
             numbers("TSMP", "L", [[gps_total + n_gps]]),
             string("STNM", "GPS (Lat., Long., Alt., 2D speed, 3D speed)"),
-            numbers("GPSF", "L", [[3]]),
+            numbers("GPSF", "L", [[gps_fix]]),
             klv("GPSU", "U", 16, 1, format_gpsu(truth.utc0 + t_gps[0] + clock.gpsu_latency).encode()),
             numbers("GPSP", "S", [[150]]),
             klv("UNIT", "c", 3, 5, b"degdegm\0\0m/sm/s"),

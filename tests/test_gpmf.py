@@ -14,6 +14,7 @@ from fugazy_delta.gpmf import (
     parse_gpsu,
     string,
 )
+from fugazy_delta.devices import NO_NOISE
 from fugazy_delta.sim import autocross_session, example_autocross
 
 
@@ -56,7 +57,7 @@ def test_hero9_payload_layout(truth):
 
 
 def test_decoded_gps_matches_truth(truth):
-    payloads = hero9_payloads(truth, record_start=20.0, record_seconds=40.0)
+    payloads = hero9_payloads(truth, record_start=20.0, record_seconds=40.0, noise=NO_NOISE)
     gps = decode_gps5(payloads)
     exact = truth.at(gps.time - truth.utc0)
     np.testing.assert_allclose(gps.lat, exact["lat"], atol=2e-7)

@@ -17,9 +17,19 @@ on-activate = '''
   if [ ! -f "$stamp" ]; then
     (cd "$FLOX_ENV_PROJECT" && uv sync --quiet --python "$(command -v python3)") && rm -f "$FLOX_ENV_CACHE"/.deps-* && touch "$stamp"
   fi
-  if [ -f "$venv/bin/activate" ]; then
-    source "$venv/bin/activate"
-  fi
+'''
+
+# Activate the venv in the user's shell. Activating it in the hook is undone
+# when Flox sets PATH, which leaves `python` without the project's packages.
+[profile]
+bash = '''
+  source "$FLOX_ENV_CACHE/venv/bin/activate"
+'''
+zsh = '''
+  source "$FLOX_ENV_CACHE/venv/bin/activate"
+'''
+fish = '''
+  source "$FLOX_ENV_CACHE/venv/bin/activate.fish"
 '''
 
 [options]

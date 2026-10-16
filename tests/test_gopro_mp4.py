@@ -7,6 +7,7 @@ import subprocess
 import numpy as np
 import pytest
 
+from fugazy_delta.devices import NO_NOISE
 from fugazy_delta.fixtures import gopro_mp4, render_test_video
 from fugazy_delta.gpmf import CameraClock, decode_gps5
 from fugazy_delta.mp4 import creation_time, read_gpmd
@@ -26,7 +27,7 @@ def truth():
 @pytest.fixture(scope="module")
 def clip(truth, tmp_path_factory):
     path = tmp_path_factory.mktemp("gopro") / "GX010001.MP4"
-    payloads = gopro_mp4(truth, path, RECORD_START, 12.0, CLOCK)
+    payloads = gopro_mp4(truth, path, RECORD_START, 12.0, CLOCK, noise=NO_NOISE)
     return path, payloads
 
 
