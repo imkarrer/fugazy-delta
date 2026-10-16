@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Flox
+        uses: flox/install-flox-action@v2
+
+      # Real GoPro samples and GoPro's reference parser, pinned by commit and
+      # SHA-256 in the script, so the cache key is the script itself.
+      - name: Cache real-device fixtures
+        uses: actions/cache@v4
+        with:
+          path: tests/fixtures/real
+          key: fixtures-${{ runner.os }}-${{ hashFiles('scripts/fetch-fixtures.sh') }}
+
+      - name: Fetch real-device fixtures
+        run: ./scripts/fetch-fixtures.sh
+
+      - name: Test
+        uses: flox/activate-action@v2
+        with:
+          command: pytest -ra
