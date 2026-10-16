@@ -20,7 +20,7 @@
       "PROTOTYPE_PORT": "8642"
     },
     "hook": {
-      "on-activate": "  export UV_CACHE_DIR=\"$FLOX_ENV_CACHE/uv-cache\"\n  export UV_PROJECT_ENVIRONMENT=\"$FLOX_ENV_CACHE/venv\"\n  venv=\"$UV_PROJECT_ENVIRONMENT\"\n  stamp=\"$FLOX_ENV_CACHE/.deps-$(cat \"$FLOX_ENV_PROJECT/pyproject.toml\" \"$FLOX_ENV_PROJECT/uv.lock\" 2>/dev/null | shasum | cut -c1-12)\"\n  if [ ! -f \"$stamp\" ]; then\n    (cd \"$FLOX_ENV_PROJECT\" && uv sync --quiet --python \"$(command -v python3)\") && rm -f \"$FLOX_ENV_CACHE\"/.deps-* && touch \"$stamp\"\n  fi\n"
+      "on-activate": "  export UV_CACHE_DIR=\"$FLOX_ENV_CACHE/uv-cache\"\n  export UV_PROJECT_ENVIRONMENT=\"$FLOX_ENV_CACHE/venv\"\n  venv=\"$UV_PROJECT_ENVIRONMENT\"\n  stamp=\"$FLOX_ENV_CACHE/.deps-$(cat \"$FLOX_ENV_PROJECT/pyproject.toml\" \"$FLOX_ENV_PROJECT/uv.lock\" 2>/dev/null | shasum | cut -c1-12)\"\n  if [ ! -f \"$stamp\" ]; then\n    (cd \"$FLOX_ENV_PROJECT\" && uv sync --quiet --python \"$(command -v python3)\") && rm -f \"$FLOX_ENV_CACHE\"/.deps-* && touch \"$stamp\"\n  fi\n  # `flox activate -- cmd` runs no profile script, so put the venv on PATH\n  # here for it; interactive shells get the venv from [profile] below.\n  export PATH=\"$venv/bin:$PATH\"\n"
     },
     "profile": {
       "bash": "  source \"$FLOX_ENV_CACHE/venv/bin/activate\"\n",
