@@ -5,6 +5,11 @@ python312.pkg-path = "python312"
 uv.pkg-path = "uv"
 ffmpeg.pkg-path = "ffmpeg"
 dejavu_fonts.pkg-path = "dejavu_fonts"
+# libstdc++ for numpy's manylinux wheels; macOS has it in the system.
+gcc-unwrapped.pkg-path = "gcc-unwrapped"
+gcc-unwrapped.outputs = ["lib"]
+gcc-unwrapped.priority = 6
+gcc-unwrapped.systems = ["x86_64-linux", "aarch64-linux"]
 
 [vars]
 PROTOTYPE_PORT = "8642"
@@ -17,6 +22,11 @@ on-activate = '''
   stamp="$FLOX_ENV_CACHE/.deps-$(cat "$FLOX_ENV_PROJECT/pyproject.toml" "$FLOX_ENV_PROJECT/uv.lock" 2>/dev/null | shasum | cut -c1-12)"
   if [ ! -f "$stamp" ]; then
     (cd "$FLOX_ENV_PROJECT" && uv sync --quiet --python "$(command -v python3)") && rm -f "$FLOX_ENV_CACHE"/.deps-* && touch "$stamp"
+  fi
+  # Wheels with C++ extensions (numpy) load libstdc++ by soname; on Linux
+  # point the loader at the one from gcc-unwrapped.
+  if [ "$(uname -s)" = Linux ]; then
+    export LD_LIBRARY_PATH="$FLOX_ENV/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
   fi
   # `flox activate -- cmd` runs no profile script, so put the venv on PATH
   # here for it; interactive shells get the venv from [profile] below.

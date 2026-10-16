@@ -9,6 +9,17 @@
       "ffmpeg": {
         "pkg-path": "ffmpeg"
       },
+      "gcc-unwrapped": {
+        "pkg-path": "gcc-unwrapped",
+        "priority": 6,
+        "systems": [
+          "x86_64-linux",
+          "aarch64-linux"
+        ],
+        "outputs": [
+          "lib"
+        ]
+      },
       "python312": {
         "pkg-path": "python312"
       },
@@ -20,7 +31,7 @@
       "PROTOTYPE_PORT": "8642"
     },
     "hook": {
-      "on-activate": "  export UV_CACHE_DIR=\"$FLOX_ENV_CACHE/uv-cache\"\n  export UV_PROJECT_ENVIRONMENT=\"$FLOX_ENV_CACHE/venv\"\n  venv=\"$UV_PROJECT_ENVIRONMENT\"\n  stamp=\"$FLOX_ENV_CACHE/.deps-$(cat \"$FLOX_ENV_PROJECT/pyproject.toml\" \"$FLOX_ENV_PROJECT/uv.lock\" 2>/dev/null | shasum | cut -c1-12)\"\n  if [ ! -f \"$stamp\" ]; then\n    (cd \"$FLOX_ENV_PROJECT\" && uv sync --quiet --python \"$(command -v python3)\") && rm -f \"$FLOX_ENV_CACHE\"/.deps-* && touch \"$stamp\"\n  fi\n  # `flox activate -- cmd` runs no profile script, so put the venv on PATH\n  # here for it; interactive shells get the venv from [profile] below.\n  export PATH=\"$venv/bin:$PATH\"\n"
+      "on-activate": "  export UV_CACHE_DIR=\"$FLOX_ENV_CACHE/uv-cache\"\n  export UV_PROJECT_ENVIRONMENT=\"$FLOX_ENV_CACHE/venv\"\n  venv=\"$UV_PROJECT_ENVIRONMENT\"\n  stamp=\"$FLOX_ENV_CACHE/.deps-$(cat \"$FLOX_ENV_PROJECT/pyproject.toml\" \"$FLOX_ENV_PROJECT/uv.lock\" 2>/dev/null | shasum | cut -c1-12)\"\n  if [ ! -f \"$stamp\" ]; then\n    (cd \"$FLOX_ENV_PROJECT\" && uv sync --quiet --python \"$(command -v python3)\") && rm -f \"$FLOX_ENV_CACHE\"/.deps-* && touch \"$stamp\"\n  fi\n  # Wheels with C++ extensions (numpy) load libstdc++ by soname; on Linux\n  # point the loader at the one from gcc-unwrapped.\n  if [ \"$(uname -s)\" = Linux ]; then\n    export LD_LIBRARY_PATH=\"$FLOX_ENV/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}\"\n  fi\n  # `flox activate -- cmd` runs no profile script, so put the venv on PATH\n  # here for it; interactive shells get the venv from [profile] below.\n  export PATH=\"$venv/bin:$PATH\"\n"
     },
     "profile": {
       "bash": "  source \"$FLOX_ENV_CACHE/venv/bin/activate\"\n",
@@ -310,6 +321,84 @@
       "system": "x86_64-linux",
       "group": "toplevel",
       "priority": 5
+    },
+    {
+      "attr_path": "gcc-unwrapped",
+      "broken": false,
+      "derivation": "/nix/store/bmcdjrmrqkrwfv16d039mnn9974fhch1-gcc-15.2.0.drv",
+      "description": "GNU Compiler Collection, version 15.2.0",
+      "install_id": "gcc-unwrapped",
+      "license": "GPL-3.0-or-later",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "gcc-15.2.0",
+      "pname": "gcc-unwrapped",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T03:41:23.023389Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "15.2.0",
+      "outputs_to_install": [
+        "man",
+        "out",
+        "out"
+      ],
+      "outputs": {
+        "checksum": "/nix/store/6igpfz2rx7xxsr5kvxwlc57d5iafaabz-gcc-15.2.0-checksum",
+        "info": "/nix/store/khkipdd1fmlcbxnza01582fh7j2mfnf3-gcc-15.2.0-info",
+        "lib": "/nix/store/m3v5jbl1y7hxb1yimlyp0067acslkxf2-gcc-15.2.0-lib",
+        "libgcc": "/nix/store/5scis26lfzmcsbgbs3b1i4wraxg28pbp-gcc-15.2.0-libgcc",
+        "man": "/nix/store/bny95l0diywfwvg1lnwhm1m9fsxdm5pl-gcc-15.2.0-man",
+        "out": "/nix/store/8hwmjrgdixn4612zrlabmych64ix89mx-gcc-15.2.0"
+      },
+      "system": "aarch64-linux",
+      "group": "toplevel",
+      "priority": 6
+    },
+    {
+      "attr_path": "gcc-unwrapped",
+      "broken": false,
+      "derivation": "/nix/store/qlb1647jp7grq5fgp66fhk5qr9rzr1j6-gcc-15.2.0.drv",
+      "description": "GNU Compiler Collection, version 15.2.0",
+      "install_id": "gcc-unwrapped",
+      "license": "GPL-3.0-or-later",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=d407951447dcd00442e97087bf374aad70c04cea",
+      "name": "gcc-15.2.0",
+      "pname": "gcc-unwrapped",
+      "rev": "d407951447dcd00442e97087bf374aad70c04cea",
+      "rev_count": 1027867,
+      "rev_date": "2026-07-05T04:06:12Z",
+      "scrape_date": "2026-07-06T04:40:25.791144Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "15.2.0",
+      "outputs_to_install": [
+        "man",
+        "man",
+        "man",
+        "out",
+        "out",
+        "out",
+        "out"
+      ],
+      "outputs": {
+        "checksum": "/nix/store/scnas3kx869pfc8mz3fjqmfvl9m9sn6a-gcc-15.2.0-checksum",
+        "info": "/nix/store/2hbjnbfhaq4gq6p55xi9qvj6lx7x4g04-gcc-15.2.0-info",
+        "lib": "/nix/store/hngmi01i8wgi25a0byrxcn4ysz5j79mw-gcc-15.2.0-lib",
+        "libgcc": "/nix/store/7nww4d4yl7jzf66qllvyn61xb21vp7ry-gcc-15.2.0-libgcc",
+        "man": "/nix/store/5r95b3z75rc980dws0wp5ylawgzfkj6l-gcc-15.2.0-man",
+        "out": "/nix/store/sq0nrnfwhkc5ljvklnrk5ps4358g4nbj-gcc-15.2.0"
+      },
+      "system": "x86_64-linux",
+      "group": "toplevel",
+      "priority": 6
     },
     {
       "attr_path": "python312",
