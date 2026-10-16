@@ -7,6 +7,7 @@ ffmpeg.pkg-path = "ffmpeg"
 dejavu_fonts.pkg-path = "dejavu_fonts"
 
 [vars]
+PROTOTYPE_PORT = "8642"
 
 [hook]
 on-activate = '''
@@ -31,6 +32,11 @@ zsh = '''
 fish = '''
   source "$FLOX_ENV_CACHE/venv/bin/activate.fish"
 '''
+
+# The clickable prototype. `flox activate --start-services` serves it at
+# http://localhost:$PROTOTYPE_PORT
+[services.prototype]
+command = 'python3 -m http.server "$PROTOTYPE_PORT" --bind 127.0.0.1 --directory "$FLOX_ENV_PROJECT/prototype"'
 
 [options]
 systems = ["aarch64-darwin", "x86_64-darwin", "aarch64-linux", "x86_64-linux"]
