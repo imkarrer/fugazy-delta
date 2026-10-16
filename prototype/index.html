@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fugazy-delta prototype</title>
+<meta name="description" content="Clickable prototype of the fugazy-delta upload and results flow, on simulated data.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="./" data-action="restart">fugazy<span>-delta</span></a>
+  <span class="pill demo-pill" title="Everything here is simulated">Demo data</span>
+  <button class="icon-button" type="button" id="theme-toggle" aria-label="Switch light or dark mode">◐</button>
+</header>
+
+<main>
+  <!-- 1. Upload -->
+  <section id="upload" class="screen" aria-labelledby="upload-title">
+    <div class="card event-card">
+      <p class="eyebrow">You opened the link for</p>
+      <h1 id="upload-title" class="event-name"></h1>
+      <p class="muted event-venue"></p>
+      <div class="segmented" role="group" aria-label="Demo event">
+        <button type="button" data-event="autocross">Autocross</button>
+        <button type="button" data-event="track">Track day</button>
+      </div>
+    </div>
+
+    <form class="card" id="driver-form" novalidate>
+      <h2>Who's driving?</h2>
+      <p class="muted">No account needed.</p>
+      <div class="fields">
+        <label>Name <input name="name" autocomplete="name" placeholder="Isaac" required></label>
+        <label class="narrow">Car number <input name="car" inputmode="numeric" placeholder="42" required></label>
+      </div>
+    </form>
+
+    <div class="card">
+      <h2>Drop your files</h2>
+      <label class="dropzone" id="dropzone">
+        <input type="file" id="file-input" multiple hidden>
+        <span class="dz-icon" aria-hidden="true">⇪</span>
+        <strong>Drop GoPro videos and RaceBox exports here</strong>
+        <span class="muted">Any mix, any order. Or tap to choose files.</span>
+        <span class="muted small">Your video stays on your device; only its GPS data is sent.</span>
+      </label>
+      <p class="error" id="drop-error" role="alert" hidden></p>
+      <p class="muted small try-label">No files handy? Pretend to drop:</p>
+      <div class="try-buttons">
+        <button type="button" class="button secondary" data-scenario="gopro">GoPro only</button>
+        <button type="button" class="button secondary" data-scenario="gopro-racebox">GoPro + RaceBox</button>
+        <button type="button" class="button secondary" data-scenario="racebox">RaceBox only</button>
+      </div>
+      <p class="consent small">Uploading stores this session's GPS data so you can see your results. Delete it any time; it is never sold or shared.</p>
+    </div>
+  </section>
+
+  <!-- 2. Processing -->
+  <section id="processing" class="screen" hidden aria-live="polite">
+    <div class="card">
+      <h2>Reading your files</h2>
+      <ul class="file-list" id="processing-files"></ul>
+      <ol class="steps" id="processing-steps"></ol>
+    </div>
+  </section>
+
+  <!-- 3. Results -->
+  <section id="results" class="screen" hidden>
+    <div class="banner" role="note">
+      <strong>Demo data.</strong> These times come from a simulated car, not from lap detection on your files.
+    </div>
+
+    <div class="results-head">
+      <div>
+        <p class="eyebrow" id="r-venue"></p>
+        <h1 id="r-event"></h1>
+        <p class="driver" id="r-driver"></p>
+      </div>
+      <div class="setup">
+        <span class="setup-badge" id="r-setup"></span>
+        <span class="muted small" id="r-files"></span>
+      </div>
+    </div>
+    <div id="r-warnings"></div>
+
+    <div class="tiles">
+      <div class="tile">
+        <span class="tile-label" id="t-best-label">Best</span>
+        <span class="tile-value" id="t-best"></span>
+        <span class="tile-sub" id="t-best-sub"></span>
+      </div>
+      <div class="tile">
+        <span class="tile-label">Optimal</span>
+        <span class="tile-value" id="t-optimal"></span>
+        <span class="tile-sub" id="t-optimal-sub"></span>
+      </div>
+      <div class="tile">
+        <span class="tile-label" id="t-count-label">Runs</span>
+        <span class="tile-value" id="t-count"></span>
+        <span class="tile-sub" id="t-count-sub"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2 id="table-title">Runs</h2>
+        <span class="muted small">Tap a row to compare it with your best</span>
+      </div>
+      <p class="note small" id="times-note" hidden></p>
+      <div class="table-wrap">
+        <table class="laps" id="laps-table">
+          <thead></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="legend small"><span class="swatch best"></span> best <span class="swatch sector"></span> best sector (makes up the optimal)</p>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-head">
+          <h2>Delta to your best</h2>
+          <span class="muted small" id="delta-caption"></span>
+        </div>
+        <p class="note small" id="delta-note" hidden></p>
+        <div class="chart" id="delta-chart"></div>
+        <p class="muted small">Above the line: slower than your best at that point. Below: faster.</p>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <h2>Course map</h2>
+          <span class="map-legend small" id="map-legend"></span>
+        </div>
+        <p class="note small" id="map-note" hidden></p>
+        <div class="map" id="map"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>What your setup gives you</h2>
+      <ul class="features" id="features"></ul>
+      <div class="unlock" id="unlock" hidden></div>
+    </div>
+
+    <div class="card video-card" id="video-card"></div>
+
+    <div class="actions">
+      <button type="button" class="button secondary" data-action="restart">New upload</button>
+      <button type="button" class="button danger" id="delete-session">Delete this session</button>
+    </div>
+  </section>
+</main>
+
+<footer class="muted small">Prototype on simulated data<span id="footer-source"></span></footer>
+
+<script src="app.js"></script>
+</body>
+</html>
