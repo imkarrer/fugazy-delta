@@ -188,7 +188,7 @@ class Session:
         if self.setup is Setup.GOPRO_ONLY:
             camera = "GoPro GPS is accurate to about 2 m."
             return {
-                Feature.LAP_TIMES: Availability(Support.APPROXIMATE, f"{camera} Expect times within a few hundredths of a second. {add_racebox}"),
+                Feature.LAP_TIMES: Availability(Support.APPROXIMATE, f"{camera} Expect lap and run times within about ±0.1 s. {add_racebox}"),
                 Feature.VIDEO_OVERLAY: Availability(Support.FULL),
                 Feature.DELTA: Availability(Support.APPROXIMATE, f"{camera} Small gains and losses may not be real. {add_racebox}"),
                 Feature.OPTIMAL: Availability(Support.APPROXIMATE, f"{camera} {add_racebox}"),
