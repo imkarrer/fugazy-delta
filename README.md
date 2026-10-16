@@ -17,6 +17,34 @@ pytest                        # now also runs the real-file tests
 
 Or without entering a shell: `flox activate -- pytest`.
 
+## Prototype
+
+A clickable demo of the upload and results pages, on simulated data:
+
+```sh
+flox activate --start-services   # serves prototype/ at http://localhost:8642
+```
+
+On the upload page, either press one of the three setup buttons (GoPro only,
+GoPro + RaceBox, RaceBox only) or drop files: the demo reads only their
+extensions, counting `.mp4` as GoPro and `.vbo` or `.csv` as RaceBox, and
+picks the setup from that mix. The results page then shows that setup's demo
+session. The event switch picks an autocross or a track day; a link
+with `?event=track` opens the track day directly. Set `PROTOTYPE_PORT` to
+use another port.
+
+Lap and run times are the simulator's ground truth, because lap detection
+does not exist yet. The feature labels are what `Session.features()`
+returns for simulated device files written to disk and read back. The map
+and delta use the position source that session picks: the RaceBox when
+present, otherwise the GoPro's GPS. `tests/test_demo.py` regenerates the data
+and fails when it differs from the committed files, so after changing the
+simulator or `session.py`, regenerate it:
+
+```sh
+flox activate -c 'python -m fugazy_delta.demo prototype/data'
+```
+
 ## Layout
 
 | Path | What |
@@ -28,4 +56,6 @@ Or without entering a shell: `flox activate -- pytest`.
 | `fugazy_delta/gpmf.py` | GoPro GPMF encode/decode, HERO9-like payloads |
 | `fugazy_delta/mp4.py` | read a GoPro telemetry track; add one to an MP4 |
 | `fugazy_delta/fixtures.py` | build synthetic GoPro MP4 and RaceBox VBO files from a truth |
+| `fugazy_delta/demo.py` | demo results data for the prototype, one JSON file per event and setup |
+| `prototype/` | clickable prototype of the upload and results pages (plain HTML/CSS/JS) |
 | `docs/spikes/` | time-boxed experiments and what they found |

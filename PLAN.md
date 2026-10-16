@@ -48,7 +48,8 @@ on the user's device until they choose to send it for rendering.
 | Phone only | GPX from any lap-timer app | Low, lower quality |
 
 Before any backend work, a clickable prototype on fake data goes in front
-of 3–5 people at an event, to see where the GoPro step loses them.
+of 3–5 people at an event, to see where the GoPro step loses them. The
+prototype is in `prototype/`, and the README says how to run it.
 
 ### Three setups, one upload
 
@@ -176,7 +177,7 @@ Four layers:
 
 | Phase | Delivers | Hardware needed |
 |---|---|---|
-| 0. Foundations | Flox environment, `Telemetry` model, virtual car, VBO and GPMF codecs, synthetic GoPro MP4 (works; see `docs/spikes/gpmf-mux.md`), CI, clickable prototype tested on real people | None |
+| 0. Foundations | Flox environment, `Telemetry` model, virtual car, VBO and GPMF codecs, synthetic GoPro MP4 (works; see `docs/spikes/gpmf-mux.md`), CI, clickable prototype tested on real people. Prototype built in `prototype/` but not yet tested on anyone. CI not started | None |
 | 1. Autocross results | Upload → runs, times, run-vs-run delta, from telemetry only. **The demo for the sponsorship proposal** | None |
 | 2. Track days | Track library, laps, sectors, optimal lap time | None |
 | 3. Video | Overlay render, optimal-lap composite video, top 3 losses | RaceBox and GoPro (arriving next year) |
