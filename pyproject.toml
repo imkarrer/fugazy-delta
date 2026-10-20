@@ -5,6 +5,9 @@ description = "Autocross and track-day telemetry: RaceBox + GoPro → runs, delt
 requires-python = ">=3.12"
 dependencies = [
   "numpy>=2",
+  # time zone at a position, for files that record local time only
+  "tzfpy>=1.0",
+  "tzdata",
 ]
 
 [dependency-groups]

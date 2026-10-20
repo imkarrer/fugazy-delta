@@ -9,8 +9,8 @@ setup:
   app or any other device `importers` reads)
 - logger only: data, no video
 
-When several loggers are in the upload, the one with UTC on every sample,
-a dedicated GNSS receiver and the highest rate times the session.
+When several loggers are in the upload, `_rank` picks the one that times
+the session.
 
 `Session.features()` reports what each setup can deliver, with the reason,
 so the results page can show what is available and what adding a device
@@ -133,9 +133,10 @@ class Logger:
 
 
 def _rank(logger: Logger) -> tuple:
-    """Which logger times the session: one with UTC on every sample first,
-    then a dedicated GNSS logger over a phone, then the highest rate."""
-    return (logger.utc, logger.profile == PRECISE, logger.telemetry.sample_rate)
+    """Which logger times the session: a dedicated GNSS logger over a phone,
+    because lap times depend on position error and not on the clock; then
+    one with UTC on every sample; then the highest rate."""
+    return (logger.profile == PRECISE, logger.utc, logger.telemetry.sample_rate)
 
 
 @dataclass
