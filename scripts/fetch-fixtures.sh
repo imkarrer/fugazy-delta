@@ -43,6 +43,11 @@ fetch modtesla3uk-cmd/mt3uk $MT3UK tests/fixtures/thruxton-trimmed.vbo vbo/thrux
 fetch modtesla3uk-cmd/mt3uk $MT3UK tests/fixtures/shelsley-climb-and-descent.vbo vbo/shelsley-climb-and-descent.vbo d729ea27915a5b7f1176eb03001edc6670656a1d57c0369b2f51e4fdf4c06c92
 fetch haruiz/apexai 796a1ed4c63c07b4c5a0794a1aaaefb973856660 telemetry-data/VBOX_files/VBOX0133.vbo vbo/VBOX0133.vbo 1a633252ba46a81e39f788026cede59382f7564e6970e4928e2dfe5fb7921173
 
+# RaceBox CSV and GPX exports of one session (Lake Elsinore, 21 June
+# 2026), github.com/beadon/RacePlex sample_race_files/, GPL-3.0.
+RACEPLEX=1edc3716a0f8e487a39bd77feec2f2f461e6e5f6
+fetch beadon/RacePlex $RACEPLEX "sample_race_files/RaceBox%20Track%20Sessionon%2021-06-2026%2013-43.csv" racebox/session.csv c4953baf0991437107bf074d983b36efe8b2840057bbbfccb37cce167e1b3824
+
 if [ ! -x "$DEST/gpmf_demo" ]; then
   src=$(mktemp -d)
   trap 'rm -rf "$src"' EXIT
