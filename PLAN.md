@@ -1,14 +1,27 @@
 # fugazy-delta build plan
 
 A hosted web app for autocross (CVSCC) and track days (RevMatch, Chin Track
-Days): a driver drops in the files from a RaceBox Mini and a GoPro and gets
-their runs or laps, the time delta between them, an optimal lap, the three
-places they lose the most time, and an overlay video. That covers Garmin
-Catalyst's post-session features; live audio coaching is out of scope.
+Days) that puts a whole event on one page. Each driver drops in the files
+from whatever lap timer they already use; the app times every driver's runs
+or laps the same way, labels each time with its measured error, and compares
+drivers across a class, with overlay videos that fugazy-publish posts. Live
+in-car timing and audio coaching are out of scope.
 
 The author (Isaac) runs a RaceBox Mini and a GoPro HERO9 in a Miata. The plan
 works backwards from the upload, because whether anyone besides the author
 uses the app depends on how easy the upload is.
+
+### Positioning: the layer above lap-timing apps
+
+For one driver's own analysis, established apps already do the job: the
+RaceBox app, RaceChrono Pro and Harry's LapTimer time laps, compare them,
+sync GoPro video and run live in the car and the grid. fugazy-delta doesn't
+compete with them on that. It reads their exports (section 7) and adds what
+none of them does: one page for a whole event, with every driver timed
+consistently whatever recorded them, class comparisons, official results,
+and posting through fugazy-publish. Live Bluetooth capture from a RaceBox is
+therefore not planned, since those apps already do it and iPhone browsers
+can't use Bluetooth.
 
 ## 1. What the user does
 
