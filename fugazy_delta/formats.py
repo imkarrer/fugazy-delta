@@ -2,4 +2,4 @@
 with `importers`. The order here does not matter; `importers.identify`
 tries binary signatures before text ones."""
 
-from . import gopro, racebox_csv, racechrono, vbo  # noqa: F401
+from . import gopro, racebox_csv, racechrono, vbo, xrk  # noqa: F401

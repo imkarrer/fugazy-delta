@@ -52,6 +52,14 @@ fetch beadon/RacePlex $RACEPLEX "sample_race_files/RaceBox%20Track%20Sessionon%2
 # github.com/ClassicMiniDIY/UltraLog exampleLogs/racechrono/, AGPL-3.0.
 fetch ClassicMiniDIY/UltraLog ecfb727f5877b52884caca7f503c028e29e5b524 exampleLogs/racechrono/session_massa_finalese_v3_excerpt.csv racechrono/massa-finalese-v3.csv 63acea8298e71944f5b1737a33a90739ed6d9aa31e0d6a7684dcfe9020ea7099
 
+# AiM logger files from libxrk's test data, github.com/m3rlin45/libxrk.
+# The repository is MIT, but where the data came from is not stated, so
+# they are fetched: AiM's own sample (Adria Kart, 23 January 2016, XRK)
+# and a KK-SII session at Tsukuba (23 May 2026, XRZ).
+LIBXRK=4e44d38debc9445b8e5446c9b7a241f5730ac920
+fetch m3rlin45/libxrk $LIBXRK tests/test_data/aim_official/test.xrk aim/adria-kart.xrk 39b3598b9d4cf6cb3815450aec95d5272f453ad9ac16ac789aea7d7ad22f2f50
+fetch m3rlin45/libxrk $LIBXRK "tests/test_data/issue84/CMD_KK-SII_Tsukuba_Car_Qualifying%20testing_a_0159.xrz" aim/tsukuba.xrz 6c08bb9c223a63a0a337a93af5238c9e5be9cfde477ff7c0f0141db654bb0ef3
+
 if [ ! -x "$DEST/gpmf_demo" ]; then
   src=$(mktemp -d)
   trap 'rm -rf "$src"' EXIT

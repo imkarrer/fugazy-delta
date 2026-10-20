@@ -20,8 +20,10 @@ on-activate = '''
   export UV_PROJECT_ENVIRONMENT="$FLOX_ENV_CACHE/venv"
   venv="$UV_PROJECT_ENVIRONMENT"
   stamp="$FLOX_ENV_CACHE/.deps-$(cat "$FLOX_ENV_PROJECT/pyproject.toml" "$FLOX_ENV_PROJECT/uv.lock" 2>/dev/null | shasum | cut -c1-12)"
+  # --all-extras: development and CI also install the optional readers
+  # the tests compare against (libxrk, for AiM files).
   if [ ! -f "$stamp" ]; then
-    (cd "$FLOX_ENV_PROJECT" && uv sync --quiet --python "$(command -v python3)") && rm -f "$FLOX_ENV_CACHE"/.deps-* && touch "$stamp"
+    (cd "$FLOX_ENV_PROJECT" && uv sync --quiet --all-extras --python "$(command -v python3)") && rm -f "$FLOX_ENV_CACHE"/.deps-* && touch "$stamp"
   fi
   # Wheels with C++ extensions (numpy) load libstdc++ by soname; on Linux
   # point the loader at the one from gcc-unwrapped.

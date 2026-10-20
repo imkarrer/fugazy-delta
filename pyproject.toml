@@ -10,6 +10,11 @@ dependencies = [
   "tzdata",
 ]
 
+[project.optional-dependencies]
+# AiM XRK reference reader. fugazy_delta.xrk reads XRK without it; the
+# tests compare against it when installed. Brings PyArrow and Cython.
+aim = ["libxrk>=0.13"]
+
 [dependency-groups]
 dev = [
   "pytest>=8",
