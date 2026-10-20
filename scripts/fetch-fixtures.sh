@@ -60,6 +60,11 @@ LIBXRK=4e44d38debc9445b8e5446c9b7a241f5730ac920
 fetch m3rlin45/libxrk $LIBXRK tests/test_data/aim_official/test.xrk aim/adria-kart.xrk 39b3598b9d4cf6cb3815450aec95d5272f453ad9ac16ac789aea7d7ad22f2f50
 fetch m3rlin45/libxrk $LIBXRK "tests/test_data/issue84/CMD_KK-SII_Tsukuba_Car_Qualifying%20testing_a_0159.xrz" aim/tsukuba.xrz 6c08bb9c223a63a0a337a93af5238c9e5be9cfde477ff7c0f0141db654bb0ef3
 
+# TrackAddict 4.3.7 on Android with phone GPS, Saint-Eustache, 2 September
+# 2019, a whole session with TrackAddict's lap times at the end,
+# github.com/v3c70r/OpenRaceRender raw/ (no licence).
+fetch v3c70r/OpenRaceRender 205dbaef5c931c34eef4a273b968b7bf38371e69 "raw/Log-20190902-190235%20Saint-Eustache%20-%201.06.879.csv" trackaddict/saint-eustache.csv 631904f939c7094468b1a7e8843977aeea8a1aaa8a5d9bf6a519d75e0c591c78
+
 if [ ! -x "$DEST/gpmf_demo" ]; then
   src=$(mktemp -d)
   trap 'rm -rf "$src"' EXIT

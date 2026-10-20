@@ -263,3 +263,18 @@ def test_no_counted_laps():
     laps = [lap(0, [10, 20], 30, kind=LapKind.OUT)]
     assert best_lap(laps) is None
     assert np.isnan(optimal_lap(laps).time)
+
+
+def test_one_hz_phone_gps_is_not_a_dropout():
+    """A 1 Hz receiver's fixes are a second apart by design; laps timed
+    from them are counted, not flagged as dropouts."""
+    from fugazy_delta.devices import NO_NOISE, sample_gnss
+    from fugazy_delta.segment import default_max_gap
+    from fugazy_delta.sim import example_track, track_session
+
+    truth = track_session(example_track(), [[1, 1, 1]] * 3, in_lap=0.5)
+    phone = sample_gnss(truth, 1.0, NO_NOISE)
+    assert default_max_gap(phone) == pytest.approx(2.5)
+    assert default_max_gap(sample_gnss(truth, 25.0, NO_NOISE)) == 1.0
+    laps = [lap for lap in find_laps(phone, truth.course.timing_lines()) if lap.counted]
+    assert [lap.time for lap in laps] == pytest.approx([lap.time for lap in truth.laps[1:3]], abs=0.05)

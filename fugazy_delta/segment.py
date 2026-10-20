@@ -15,7 +15,8 @@ What does not count as a crossing:
 - crossing it backwards (driving back to the autocross grid)
 - crossing it below `min_speed`: a car standing on or near a line, whose GPS
   position wanders back and forth across it
-- a crossing inside a GPS dropout longer than `max_gap`. Its time is still
+- a crossing inside a GPS dropout longer than `max_gap` (1 s, or longer for
+  a receiver slower than 2.5 Hz; see `default_max_gap`). Its time is still
   estimated, so the laps on either side keep their boundaries, but the laps
   it bounds are flagged rather than counted (a sector line in a dropout
   leaves just that split unknown)
@@ -178,10 +179,21 @@ def _track(telemetry: Telemetry, origin) -> tuple[np.ndarray, ...]:
     return t, e, n, _speed(t, e, n, telemetry.speed[ok])
 
 
+def default_max_gap(telemetry: Telemetry) -> float:
+    """The longest gap between fixes that is not a dropout: 1 s, or two
+    and a half fix intervals for a receiver slower than 2.5 Hz, such as a
+    phone's 1 Hz GPS, whose every interval would otherwise count."""
+    if len(telemetry) < 2:
+        return 1.0
+    return max(1.0, 2.5 * float(np.median(np.diff(telemetry.time))))
+
+
 def find_crossings(
-    telemetry: Telemetry, lines: TimingLines, min_speed: float = 1.0, max_gap: float = 1.0,
+    telemetry: Telemetry, lines: TimingLines, min_speed: float = 1.0, max_gap: float | None = None,
 ) -> list[Crossing]:
     """Every forward crossing of every line at `min_speed` or faster, in time order."""
+    if max_gap is None:
+        max_gap = default_max_gap(telemetry)
     origin = (lines.start.lat, lines.start.lon)
     t, e, n, speed = _track(telemetry, origin)
     gates = [(START, lines.start, "start/finish" if lines.closed else "start")]
@@ -212,7 +224,7 @@ def find_laps(
     telemetry: Telemetry,
     lines: TimingLines,
     min_speed: float = 1.0,
-    max_gap: float = 1.0,
+    max_gap: float | None = None,
     min_lap_time: float = 10.0,
 ) -> list[Lap]:
     """Laps (closed course) or runs (open course) in one recording.
@@ -220,6 +232,7 @@ def find_laps(
     min_speed: crossings slower than this (m/s) are ignored.
     max_gap: a crossing between fixes further apart than this (s) is a
         dropout: estimated, and the laps it bounds are not counted.
+        Defaults to `default_max_gap`.
     min_lap_time: a start/finish crossing this soon after the last one is
         ignored, and a partial out- or in-lap shorter than this is dropped.
     """
