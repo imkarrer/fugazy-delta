@@ -47,6 +47,7 @@ fetch haruiz/apexai 796a1ed4c63c07b4c5a0794a1aaaefb973856660 telemetry-data/VBOX
 # 2026), github.com/beadon/RacePlex sample_race_files/, GPL-3.0.
 RACEPLEX=1edc3716a0f8e487a39bd77feec2f2f461e6e5f6
 fetch beadon/RacePlex $RACEPLEX "sample_race_files/RaceBox%20Track%20Sessionon%2021-06-2026%2013-43.csv" racebox/session.csv c4953baf0991437107bf074d983b36efe8b2840057bbbfccb37cce167e1b3824
+fetch beadon/RacePlex $RACEPLEX "sample_race_files/RaceBox%20Track%20Sessionon%2021-06-2026%2013-43.gpx" racebox/session.gpx 29976dfa68b7c3c8220352a07cd64ac5b950a18dc5803fdfda6c507df0646562
 
 # RaceChrono Pro CSV v3 export, Massa Finalese, 4 August 2026,
 # github.com/ClassicMiniDIY/UltraLog exampleLogs/racechrono/, AGPL-3.0.
@@ -64,6 +65,13 @@ fetch m3rlin45/libxrk $LIBXRK "tests/test_data/issue84/CMD_KK-SII_Tsukuba_Car_Qu
 # 2019, a whole session with TrackAddict's lap times at the end,
 # github.com/v3c70r/OpenRaceRender raw/ (no licence).
 fetch v3c70r/OpenRaceRender 205dbaef5c931c34eef4a273b968b7bf38371e69 "raw/Log-20190902-190235%20Saint-Eustache%20-%201.06.879.csv" trackaddict/saint-eustache.csv 631904f939c7094468b1a7e8843977aeea8a1aaa8a5d9bf6a519d75e0c591c78
+
+# One GPS track as NMEA and as the GPX 1.0 that GPSBabel converts it to
+# (7 August 2004, Wisconsin), github.com/GPSBabel/gpsbabel reference/track/,
+# GPL-2.0.
+GPSBABEL=c1b6629c89bc3383fd7662cdb8942c7139e60109
+fetch GPSBabel/gpsbabel $GPSBABEL reference/track/nmea nmea/gpsbabel-track.nmea 5562f1089ac9e5793d374d39cfb2b4a3b816b530efed3c4218e0b76264719818
+fetch GPSBabel/gpsbabel $GPSBABEL reference/track/nmea.gpx nmea/gpsbabel-track.gpx 946d26139e5cd368538d507cc1fbb76543b1937b3a09e2383498ac474f392a9a
 
 if [ ! -x "$DEST/gpmf_demo" ]; then
   src=$(mktemp -d)
