@@ -110,3 +110,35 @@ def test_truth_telemetry_is_absolute_utc(autox):
     tel = autox.telemetry(rate_hz=10)
     assert tel.time[0] == autox.utc0
     assert tel.sample_rate == pytest.approx(10.0)
+
+
+def test_line_offset_moves_the_car_sideways_without_changing_times():
+    base = track_session(example_track(), [EVEN, EVEN])
+    wide = track_session(example_track(), [EVEN, EVEN], line_offset=[0.0, 5.0])
+    np.testing.assert_allclose(wide.lap_times, base.lap_times)
+    lap = base.laps[1]
+    at = lambda truth, t: np.array([truth.at(np.array([t]))[k][0] for k in ("east", "north")])
+    # on the centre line at the start/finish, 5 m off it half-way round
+    assert np.linalg.norm(at(wide, lap.start) - at(base, lap.start)) < 0.01
+    assert np.linalg.norm(at(wide, lap.start + lap.time / 2) - at(base, lap.start + lap.time / 2)) == pytest.approx(5.0, abs=0.5)
+
+
+def test_line_offset_needs_one_entry_per_lap():
+    with pytest.raises(ValueError, match="line_offset"):
+        track_session(example_track(), [EVEN, EVEN], line_offset=[1.0])
+
+
+def test_in_lap_stops_short_of_the_line():
+    t = track_session(example_track(), [EVEN, EVEN], in_lap=0.5)
+    assert len(t.laps) == 2
+    assert t.speed[-1] < 0.1
+    assert t.t[-1] > t.laps[-1].end + 10.0
+    end = t.at(np.array([t.t[-1]]))
+    start = t.at(np.array([0.0]))
+    assert np.hypot(end["east"][0] - start["east"][0], end["north"][0] - start["north"][0]) > 100.0
+
+
+def test_autocross_line_offset_keeps_run_times():
+    base = autocross_session(example_autocross(), [EVEN])
+    wide = autocross_session(example_autocross(), [EVEN], line_offset=[-3.0])
+    np.testing.assert_allclose(wide.lap_times, base.lap_times)

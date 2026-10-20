@@ -27,6 +27,14 @@ from .mp4 import read_gpmd
 from .vbo import read_vbo
 
 
+# What GoPro-only timing can promise: 19 in 20 laps, or autocross runs, are
+# within this many seconds of the truth. Measured on the virtual car by
+# tests/test_timing_accuracy.py, which fails if the measurement disagrees.
+# Runs fare worse because the car crosses an autocross start line slowly.
+GOPRO_LAP_ERROR_S = 0.15
+GOPRO_RUN_ERROR_S = 0.7
+
+
 class UnsupportedFile(ValueError):
     pass
 
@@ -188,7 +196,11 @@ class Session:
         if self.setup is Setup.GOPRO_ONLY:
             camera = "GoPro GPS is accurate to about 2 m."
             return {
-                Feature.LAP_TIMES: Availability(Support.APPROXIMATE, f"{camera} Expect lap and run times within about ±0.1 s. {add_racebox}"),
+                Feature.LAP_TIMES: Availability(Support.APPROXIMATE, (
+                    f"{camera} Expect lap times within about ±{GOPRO_LAP_ERROR_S:g} s and autocross run "
+                    f"times within about ±{GOPRO_RUN_ERROR_S:g} s, because the car crosses the start line "
+                    f"slowly. {add_racebox}"
+                )),
                 Feature.VIDEO_OVERLAY: Availability(Support.FULL),
                 Feature.DELTA: Availability(Support.APPROXIMATE, f"{camera} Small gains and losses may not be real. {add_racebox}"),
                 Feature.OPTIMAL: Availability(Support.APPROXIMATE, f"{camera} {add_racebox}"),

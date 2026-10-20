@@ -22,6 +22,7 @@ import numpy as np
 
 from .geo import to_latlon
 from .model import G, Telemetry
+from .segment import Gate, TimingLines
 
 DEFAULT_ORIGIN = (44.8113, -91.4985)  # Chippewa Valley, WI
 DEFAULT_UTC0 = datetime(2026, 6, 13, 14, 0, 0, tzinfo=timezone.utc).timestamp()
@@ -123,6 +124,19 @@ class Course:
         n = float(np.interp(s, self.s, self.north))
         lat, lon = to_latlon(e, n, *self.origin)
         return float(lat), float(lon)
+
+    def gate_at(self, s: float, width: float) -> Gate:
+        """A timing line across the course `s` metres along it."""
+        heading = 90.0 - math.degrees(float(np.interp(s, self.s, self.theta)))
+        return Gate(*self.latlon_at(s), heading=heading % 360.0, width=width)
+
+    def timing_lines(self, width: float = 20.0) -> TimingLines:
+        """Start, finish (open course only) and sector lines, `width` metres wide."""
+        return TimingLines(
+            start=self.gate_at(0.0, width),
+            finish=None if self.closed else self.gate_at(self.length, width),
+            sectors=tuple(self.gate_at(d, width) for d in self.sector_distances),
+        )
 
 
 @dataclass
@@ -239,8 +253,12 @@ def _pace_grid(course: Course, s_in_lap: np.ndarray, pace: list[float]) -> np.nd
     return np.asarray(pace)[idx]
 
 
-def _sample_path(t_grid, s_grid, v, course_s, course_e, course_n, course_theta, course_k, s_mod):
-    """Resample a distance-grid path onto the fixed truth time grid."""
+def _sample_path(t_grid, s_grid, v, course_s, course_e, course_n, course_theta, course_k, s_mod, offset=None):
+    """Resample a distance-grid path onto the fixed truth time grid.
+
+    `offset(s)` moves the car sideways off the centre line (metres, + left),
+    along the course normal at s.
+    """
     t = np.arange(0.0, t_grid[-1], 1.0 / TRUTH_RATE_HZ)
     s = np.interp(t, t_grid, s_grid)
     sm = s_mod(s)
@@ -248,6 +266,10 @@ def _sample_path(t_grid, s_grid, v, course_s, course_e, course_n, course_theta, 
     east = np.interp(sm, course_s, course_e)
     north = np.interp(sm, course_s, course_n)
     theta = np.interp(sm, course_s, course_theta)
+    if offset is not None:
+        o = offset(s)
+        east = east - o * np.sin(theta)
+        north = north + o * np.cos(theta)
     k = np.interp(sm, course_s, course_k)
     accel_long = np.gradient(speed, t) / G
     accel_lat = speed**2 * k / G
@@ -259,26 +281,63 @@ def _crossing_time(t_grid, s_grid, s_target) -> float:
     return float(np.interp(s_target, s_grid, t_grid))
 
 
-def track_session(course: Course, pace: list[list[float]], car: Car = Car(), utc0: float = DEFAULT_UTC0) -> Truth:
+def _bulge(amplitude, s, length):
+    """Sideways offset that is `amplitude` mid-way along and zero at both ends."""
+    return amplitude * np.sin(np.pi * np.clip(s, 0.0, length) / length) ** 2
+
+
+def _check_line(line_offset, n):
+    if line_offset is not None and len(line_offset) != n:
+        raise ValueError(f"line_offset has {len(line_offset)} entries, pace has {n}")
+
+
+def track_session(
+    course: Course,
+    pace: list[list[float]],
+    car: Car = Car(),
+    utc0: float = DEFAULT_UTC0,
+    line_offset: list[float] | None = None,
+    in_lap: float = 0.0,
+    in_lap_pace: float = 0.6,
+) -> Truth:
     """Laps of a closed course, starting from rest on the start/finish line.
 
     Lap 0 is the out-lap from standstill; every entry in `pace` is a full lap,
     so `laps` in the result has `len(pace)` entries.
+
+    `line_offset` gives each lap its own line: the car drifts sideways by up
+    to that many metres (+ left) mid-lap and is back on the centre line at
+    the start/finish. The offset is along the course normal, so the car
+    still crosses every timing line at the same moment and lap and sector
+    times do not change; speed and heading stay those of the centre line.
+
+    `in_lap` is how far round (a fraction of a lap) the car drives after the
+    last lap, at `in_lap_pace`, before stopping at pit entry. It never
+    reaches the start/finish line, so it is not a lap.
     """
     if not course.closed:
         raise ValueError("track_session needs a closed course")
+    _check_line(line_offset, len(pace))
+    if not 0.0 <= in_lap < 1.0:
+        raise ValueError("in_lap must be in [0, 1)")
     L = course.length
     n_laps = len(pace)
     s = np.concatenate([course.s[:-1] + i * L for i in range(n_laps)] + [[n_laps * L]])
+    if in_lap > 0.0:
+        s = np.concatenate([s, n_laps * L + course.s[1:][course.s[1:] <= in_lap * L]])
     s_in_lap = np.mod(s, L)
-    s_in_lap[-1] = L
+    s_in_lap[n_laps * len(course.s[:-1])] = L
     k = np.interp(s_in_lap, course.s, course.curvature)
-    lap_idx = np.minimum((s // L).astype(int), n_laps - 1)
-    grip = car.grip * np.concatenate(
-        [_pace_grid(course, s_in_lap[lap_idx == i], pace[i]) for i in range(n_laps)]
-    )
-    v = _speed_profile(k, np.diff(s), grip, car, v_start=0.0, v_end=None)
+    lap_idx = np.minimum((s // L).astype(int), n_laps)
+    lap_idx[n_laps * len(course.s[:-1])] = n_laps - 1
+    grip = np.empty(len(s))
+    for i in range(n_laps):
+        grip[lap_idx == i] = _pace_grid(course, s_in_lap[lap_idx == i], pace[i])
+    grip[lap_idx == n_laps] = in_lap_pace
+    grip *= car.grip
+    v = _speed_profile(k, np.diff(s), grip, car, v_start=0.0, v_end=0.0 if in_lap > 0.0 else None)
     v[0] = max(v[0], 1e-3)
+    v[-1] = max(v[-1], 1e-3)
     t_grid = _time_along(s, v)
 
     laps = []
@@ -288,9 +347,15 @@ def track_session(course: Course, pace: list[list[float]], car: Car = Car(), utc
         splits = np.array([_crossing_time(t_grid, s, i * L + d) for d in course.sector_distances])
         laps.append(Lap(start, end, splits))
 
+    offset = None
+    if line_offset is not None:
+        amplitude = np.append(np.asarray(line_offset, dtype=np.float64), 0.0)  # in-lap: centre line
+        def offset(x):
+            return _bulge(amplitude[np.clip((x // L).astype(int), 0, n_laps)], np.mod(x, L), L)
+
     cols = _sample_path(
         t_grid, s, v, course.s, course.east, course.north, course.theta, course.curvature,
-        lambda x: np.mod(x, L),
+        lambda x: np.mod(x, L), offset,
     )
     return Truth(course, utc0, *cols, laps=laps)
 
@@ -303,6 +368,7 @@ def autocross_session(
     staging: float = 3.0,
     idle: float = 20.0,
     return_speed: float = 5.0,
+    line_offset: list[float] | None = None,
 ) -> Truth:
     """Several runs of an open course in one continuous recording.
 
@@ -310,9 +376,14 @@ def autocross_session(
     car is rolling when it trips the timer, as at a real event), runs to the
     finish, brakes to a stop on a straight run-off, idles, then drives back to
     the staging spot in a straight line and idles again before the next run.
+
+    `line_offset` gives each run its own line, as in `track_session`: the
+    car is on the centre line at the start and finish and up to that many
+    metres to the side mid-course, without changing any time.
     """
     if course.closed:
         raise ValueError("autocross_session needs an open course")
+    _check_line(line_offset, len(pace))
     L = course.length
     runoff = car.top_speed**2 / (2 * car.grip * G) + 10.0
 
@@ -344,7 +415,7 @@ def autocross_session(
 
     stage_heading = float(np.mod(90.0 - math.degrees(th0), 360.0))
     append(idle_piece(idle, full_e[0], full_n[0], stage_heading))
-    for run_pace in pace:
+    for run, run_pace in enumerate(pace):
         in_course = np.clip(full_s, 0.0, L)
         grip = car.grip * _pace_grid(course, in_course, run_pace)
         v = _speed_profile(full_k, np.diff(full_s), grip, car, v_start=0.0, v_end=0.0)
@@ -354,7 +425,11 @@ def autocross_session(
         end = t_offset + _crossing_time(t_grid, full_s, L)
         splits = t_offset + np.array([_crossing_time(t_grid, full_s, d) for d in course.sector_distances])
         laps.append(Lap(start, end, splits))
-        append(_sample_path(t_grid, full_s, v, full_s, full_e, full_n, full_th, full_k, lambda x: x))
+        amplitude = 0.0 if line_offset is None else line_offset[run]
+        append(_sample_path(
+            t_grid, full_s, v, full_s, full_e, full_n, full_th, full_k, lambda x: x,
+            lambda x, a=amplitude: _bulge(a, x, L),
+        ))
 
         stop_heading = float(np.mod(90.0 - math.degrees(th1), 360.0))
         append(idle_piece(idle, full_e[-1], full_n[-1], stop_heading))
@@ -372,11 +447,15 @@ def autocross_session(
 
 
 def example_track() -> Course:
-    """A ~1.4 km rounded-rectangle road course with three sectors."""
+    """A ~1.4 km rounded-rectangle road course with three sectors.
+
+    The start/finish line is half-way down the 400 m main straight, where
+    real tracks put it, so the car crosses it near top speed.
+    """
     return Course(
         segments=[
-            Straight(400), Arc(60, 90), Straight(150), Arc(25, 90),
-            Straight(420), Arc(40, 90), Straight(170), Arc(25, 90),
+            Straight(200), Arc(60, 90), Straight(150), Arc(25, 90),
+            Straight(420), Arc(40, 90), Straight(170), Arc(25, 90), Straight(200),
         ],
         closed=True,
         sectors=(1 / 3, 2 / 3),

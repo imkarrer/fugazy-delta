@@ -11,11 +11,13 @@ What is real and what is not:
 
 - Setup, feature support and reasons come from `Session.features()` on the
   real files.
-- Map traces and delta curves come from the position source the session
-  chose (RaceBox when present, else GoPro GPS), so the GoPro-only map
-  carries the camera's GPS error.
-- Lap, run and sector times are the simulator's ground truth: there is no
-  lap detection yet. The JSON and the page both say "demo data".
+- Lap, run and sector times are found by `segment.find_laps` on the
+  position source the session chose (RaceBox when present, else GoPro GPS),
+  against the course's timing lines, so GoPro-only times carry the camera's
+  GPS error. So do the map traces and delta curves.
+- The driving is simulated: each lap or run has its own pace and its own
+  line, so the map shows two lines apart. The JSON and the page both say
+  "demo data".
 
 Run inside the Flox environment (it needs ffmpeg):
 
@@ -34,6 +36,7 @@ import numpy as np
 from .fixtures import gopro_mp4, racebox_vbo
 from .geo import to_local
 from .model import Telemetry
+from .segment import LapKind, find_laps
 from .session import Session, Setup
 from .sim import Truth, autocross_session, example_autocross, example_track, track_session
 
@@ -48,7 +51,7 @@ AUTOCROSS_PACE = [
     [0.96, 1.00, 0.96],
     [0.98, 0.98, 0.99],
 ]
-# Lap 1 is the out-lap from the pit lane; it is shown but never counted.
+# Lap 1 is the out-lap from a standstill; it is shown but never counted.
 TRACK_PACE = [
     [0.85, 0.90, 0.90],
     [0.95, 0.95, 0.95],
@@ -57,6 +60,14 @@ TRACK_PACE = [
     [0.97, 0.98, 1.00],
     [0.96, 0.97, 0.96],
 ]
+
+# How far each run or lap strays from the centre line mid-way round, in
+# metres (+ left), so comparing two of them on the map shows two lines.
+AUTOCROSS_LINE = [0.0, 2.5, -2.0, 1.5, -2.5]
+TRACK_LINE = [0.0, 4.0, -5.0, 3.0, -4.0, 5.0]
+# After the last lap the car drives half a lap to pit entry. That in-lap
+# never crosses the line, so it is not shown.
+TRACK_IN_LAP = 0.5
 
 EVENTS = {
     "autocross": {
@@ -80,9 +91,9 @@ SETUPS = {
 
 def demo_truth(event: str) -> Truth:
     if event == "autocross":
-        return autocross_session(example_autocross(), AUTOCROSS_PACE, idle=8.0)
+        return autocross_session(example_autocross(), AUTOCROSS_PACE, idle=8.0, line_offset=AUTOCROSS_LINE)
     if event == "track":
-        return track_session(example_track(), TRACK_PACE)
+        return track_session(example_track(), TRACK_PACE, line_offset=TRACK_LINE, in_lap=TRACK_IN_LAP)
     raise ValueError(f"unknown event {event!r}")
 
 
@@ -138,19 +149,16 @@ def build(event: str, setup_key: str, truth: Truth | None = None) -> dict:
     if session.setup is not setup:
         raise AssertionError(f"files for {setup.value} were read as {session.setup.value}")
 
-    out_lap = 0 if event == "track" else None
-    counted = [i for i in range(len(truth.laps)) if i != out_lap]
-    times = truth.lap_times
+    position = session.position
+    laps_found = [lap for lap in find_laps(position, course.timing_lines()) if lap.kind is not LapKind.IN]
+    counted = [i for i, lap in enumerate(laps_found) if lap.counted]
+    times = np.array([lap.time for lap in laps_found])
     best = min(counted, key=lambda i: times[i])
-    sectors = np.array([lap.sector_times for lap in truth.laps])
-    best_sector_laps = [counted[int(np.argmin(sectors[counted, s]))] for s in range(sectors.shape[1])]
+    sectors = np.array([lap.sector_times for lap in laps_found])
+    best_sector_laps = [counted[int(np.nanargmin(sectors[counted, s]))] for s in range(sectors.shape[1])]
     optimal = float(sum(sectors[lap, s] for s, lap in enumerate(best_sector_laps)))
 
-    position = session.position
-    grids = [
-        _lap_on_grid(position, truth.utc0 + lap.start, truth.utc0 + lap.end, course.length, course.origin)
-        for lap in truth.laps
-    ]
+    grids = [_lap_on_grid(position, lap.start, lap.end, course.length, course.origin) for lap in laps_found]
     distance = np.linspace(0.0, course.length, GRID_POINTS)
     sector_marks = [
         {"distance": round(float(d), 1),
@@ -160,13 +168,13 @@ def build(event: str, setup_key: str, truth: Truth | None = None) -> dict:
     ]
 
     laps = []
-    for i, lap in enumerate(truth.laps):
+    for i, lap in enumerate(laps_found):
         laps.append({
             "number": i + 1,
             "time": round(float(times[i]), 3),
             "sectors": _r(lap.sector_times, 3),
             "counted": i in counted,
-            "out_lap": i == out_lap,
+            "out_lap": lap.kind is LapKind.OUT,
             "best": i == best,
             "trace": {"x": _r(grids[i]["x"], 1), "y": _r(grids[i]["y"], 1)},
             "delta_to_best": _r(grids[i]["elapsed"] - grids[best]["elapsed"], 3),

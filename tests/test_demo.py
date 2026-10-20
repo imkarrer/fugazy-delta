@@ -109,11 +109,31 @@ def test_racebox_only_has_no_overlay(event):
     assert f["LINE_COMPARISON"]["support"] == "full"
 
 
-def test_same_driving_whatever_the_setup():
-    """The setup changes how sure the app is, not how the driver drove."""
+def test_same_laps_whatever_the_setup():
+    """The setup changes how precisely the driving is timed, not the driving."""
     for event in demo.EVENTS:
-        times = {setup: [lap["time"] for lap in load(event, setup)["laps"]] for setup in demo.SETUPS}
-        assert len({tuple(t) for t in times.values()}) == 1
+        laps = {setup: load(event, setup)["laps"] for setup in demo.SETUPS}
+        assert len({len(v) for v in laps.values()}) == 1
+        # both RaceBox setups are timed from the same RaceBox file
+        assert [lap["time"] for lap in laps["racebox"]] == [lap["time"] for lap in laps["gopro-racebox"]]
+
+
+@pytest.mark.parametrize("event", demo.EVENTS)
+def test_times_are_detected_not_copied_from_the_simulator(event):
+    """Counted times are within each setup's measured error of the truth, and
+    the GoPro's differ from the RaceBox's, as detected times must."""
+    truth = demo.demo_truth(event)
+    tolerance = {"racebox": 0.5 if event == "autocross" else 0.075,
+                 "gopro": 1.2 if event == "autocross" else 0.2}
+    for setup, tol in tolerance.items():
+        laps = load(event, setup)["laps"]
+        assert len(laps) == len(truth.laps)  # the track in-lap is not shown
+        for lap, true in zip(laps, truth.laps):
+            if lap["counted"]:
+                assert lap["time"] == pytest.approx(true.time, abs=tol)
+    gopro = [lap["time"] for lap in load(event, "gopro")["laps"]]
+    racebox = [lap["time"] for lap in load(event, "racebox")["laps"]]
+    assert gopro != racebox
 
 
 @pytest.mark.ffmpeg
