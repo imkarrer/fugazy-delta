@@ -3,6 +3,7 @@
 import pytest
 
 from fugazy_delta.fixtures import gopro_mp4, racebox_vbo, render_test_video
+from fugazy_delta import accuracy
 from fugazy_delta.session import (
     Feature,
     Kind,
@@ -131,3 +132,29 @@ def test_real_hero5_with_fix_is_gopro_only(real_dir):
     session = Session.from_files([real_dir / "hero5.mp4"])
     assert session.position is not None and len(session.position) > 100
     assert session.features()[Feature.VIDEO_OVERLAY].support is Support.FULL
+
+
+@pytest.mark.parametrize("event", ["track", "autocross"])
+def test_gopro_only_reasons_quote_the_measured_error(files, event):
+    features = Session.from_files([files / "GX010042.MP4"]).features(event)
+    lap = accuracy.error(event, "gopro", "lap")
+    optimal = accuracy.error(event, "gopro", "optimal")
+    assert f"95% within ±{accuracy.seconds(lap.p95)} s" in features[Feature.LAP_TIMES].reason
+    assert features[Feature.LAP_TIMES].support is Support.APPROXIMATE
+    assert optimal.summary() in features[Feature.OPTIMAL].reason
+    assert "too fast" in features[Feature.OPTIMAL].reason
+    assert accuracy.error(event, "gopro", "sector").summary() in features[Feature.DELTA].reason
+    other = {"track": "autocross", "autocross": "track"}[event]
+    assert f"({other})" not in features[Feature.LAP_TIMES].reason
+
+
+def test_racebox_reasons_quote_the_racebox_error(files):
+    features = Session.from_files([files / "session.vbo"]).features("autocross")
+    assert features[Feature.LAP_TIMES].support is Support.FULL
+    assert accuracy.error("autocross", "racebox", "lap").summary() in features[Feature.LAP_TIMES].reason
+    assert accuracy.error("autocross", "racebox", "optimal").summary() in features[Feature.OPTIMAL].reason
+
+
+def test_reasons_without_an_event_quote_both(files):
+    reason = Session.from_files([files / "GX010042.MP4"]).features()[Feature.LAP_TIMES].reason
+    assert "(track)" in reason and "(autocross)" in reason

@@ -17,6 +17,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from functools import cached_property
 
 import numpy as np
 
@@ -184,10 +185,15 @@ class Truth:
         """Sum of the best time for each sector across all laps."""
         return float(np.sum(np.min([lap.sector_times for lap in self.laps], axis=0)))
 
+    @cached_property
+    def _heading_unwrapped(self) -> np.ndarray:
+        # Unwrapped once: `at` is called once per simulated GoPro payload.
+        return np.degrees(np.unwrap(np.radians(self.heading)))
+
     def at(self, t: np.ndarray) -> dict[str, np.ndarray]:
         """Truth channels linearly interpolated at relative times `t`."""
         t = np.asarray(t, dtype=np.float64)
-        heading = np.degrees(np.unwrap(np.radians(self.heading)))
+        heading = self._heading_unwrapped
         east = np.interp(t, self.t, self.east)
         north = np.interp(t, self.t, self.north)
         lat, lon = to_latlon(east, north, *self.course.origin)

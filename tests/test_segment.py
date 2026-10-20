@@ -6,7 +6,16 @@ import pytest
 from fugazy_delta.devices import NO_NOISE, racebox_mini
 from fugazy_delta.geo import to_latlon
 from fugazy_delta.model import Telemetry
-from fugazy_delta.segment import Gate, LapKind, TimingLines, find_crossings, find_laps
+from fugazy_delta.segment import (
+    Gate,
+    Lap,
+    LapKind,
+    TimingLines,
+    best_lap,
+    find_crossings,
+    find_laps,
+    optimal_lap,
+)
 from fugazy_delta.sim import (
     DEFAULT_ORIGIN,
     DEFAULT_UTC0,
@@ -214,3 +223,43 @@ def test_no_crossings_no_laps():
     tel = drive([(100, -50), (100, 50)], speed=20.0)
     assert find_laps(tel, TimingLines(START)) == []
     assert find_laps(tel, AUTOX) == []
+
+
+def lap(start, splits, end, kind=LapKind.TIMED, issues=()):
+    return Lap(kind, start, end, np.array(splits, dtype=float), list(issues))
+
+
+def test_best_and_optimal_use_counted_laps_only():
+    laps = [
+        lap(0, [10, 20], 30, kind=LapKind.OUT),                  # out-lap: fastest sectors, never counted
+        lap(100, [111, 121], 131),                               # 11, 10, 10 = 31
+        lap(200, [210, 221], 232),                               # 10, 11, 11 = 32
+        lap(300, [309, 318], 327, issues=["GPS dropout"]),       # flagged
+    ]
+    assert best_lap(laps) == 1
+    opt = optimal_lap(laps)
+    assert opt.sector_laps == [2, 1, 1]
+    assert opt.time == pytest.approx(30.0)
+
+
+def test_optimal_skips_a_missed_sector_line():
+    """A sector line one lap missed (NaN split) leaves the other laps to
+    supply both sectors it bounds."""
+    laps = [lap(0, [10, np.nan], 30), lap(100, [111, 121], 132)]
+    opt = optimal_lap(laps)
+    assert opt.sector_laps == [0, 1, 1]
+    assert opt.time == pytest.approx(10 + 10 + 11)
+
+
+def test_optimal_is_nan_when_no_lap_times_a_sector():
+    """Leaving a sector out would make the optimal faster than any lap."""
+    laps = [lap(0, [10, np.nan], 30), lap(100, [111, np.nan], 132)]
+    opt = optimal_lap(laps)
+    assert opt.sector_laps == [0, None, None]
+    assert np.isnan(opt.time)
+
+
+def test_no_counted_laps():
+    laps = [lap(0, [10, 20], 30, kind=LapKind.OUT)]
+    assert best_lap(laps) is None
+    assert np.isnan(optimal_lap(laps).time)

@@ -247,6 +247,14 @@ table.laps { border-collapse: collapse; width: 100%; font-variant-numeric: tabul
 .unlock { margin-top: 10px; border: 1px dashed var(--accent); border-radius: var(--radius); padding: 12px 14px; }
 .unlock strong { color: var(--accent); }
 .unlock ul { margin: 6px 0 0; padding-left: 18px; color: var(--ink-2); font-size: 0.9rem; }
+.laps th .pm { display: block; font-weight: 500; font-size: 0.7rem; color: var(--muted); }
+
+table.accuracy { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: 0.9rem; margin-top: 6px; }
+.accuracy th, .accuracy td { padding: 7px 6px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--grid); }
+.accuracy thead th { font-size: 0.75rem; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--axis); }
+.accuracy th:first-child { text-align: left; font-weight: 600; white-space: normal; }
+.accuracy tr.biased td:nth-child(2) { color: var(--warn-ink); font-weight: 600; }
+.acc-notes p { color: var(--ink-2); margin: 6px 0 0; }
 .video-card p { color: var(--ink-2); }
 .actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: space-between; }
 
@@ -256,5 +264,6 @@ table.laps { border-collapse: collapse; width: 100%; font-variant-numeric: tabul
   .tile { padding: 10px 8px; }
   .tile-value { font-size: 1.2rem; }
   .laps th, .laps td { padding: 8px 4px; font-size: 0.85rem; }
+  .accuracy th, .accuracy td { padding: 7px 3px; font-size: 0.8rem; }
   .fields label.narrow { flex-basis: 90px; }
 }

@@ -143,6 +143,27 @@
       <div class="unlock" id="unlock" hidden></div>
     </div>
 
+    <div class="card" id="accuracy">
+      <h2>How accurate is this?</h2>
+      <p class="muted small" id="acc-intro"></p>
+      <div class="table-wrap">
+        <table class="accuracy" id="accuracy-table">
+          <thead>
+            <tr>
+              <th scope="col">Time</th>
+              <th scope="col">Bias</th>
+              <th scope="col">95% within</th>
+              <th scope="col">RMS</th>
+              <th scope="col">Samples</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="muted small">Bias: how far off it is on average, if it leans one way. 95% within: 19 in 20 such times are at most this far from the truth. RMS: the typical error. Seconds throughout.</p>
+      <div class="acc-notes small" id="acc-notes"></div>
+    </div>
+
     <div class="card video-card" id="video-card"></div>
 
     <div class="actions">

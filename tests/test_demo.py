@@ -5,14 +5,19 @@ from pathlib import Path
 
 import pytest
 
-from fugazy_delta import demo
+from fugazy_delta import accuracy, demo
+from fugazy_delta.segment import find_laps
 
 DATA = Path(__file__).parent.parent / "prototype" / "data"
 SCENARIOS = [(event, setup) for event in demo.EVENTS for setup in demo.SETUPS]
 
 
+def _no_nan(name):
+    raise ValueError(f"{name} in demo JSON; browsers reject it")
+
+
 def load(event, setup):
-    return json.loads((DATA / f"{event}-{setup}.json").read_text())
+    return json.loads((DATA / f"{event}-{setup}.json").read_text(), parse_constant=_no_nan)
 
 
 @pytest.fixture(params=SCENARIOS, ids=lambda s: f"{s[0]}-{s[1]}")
@@ -145,3 +150,44 @@ def test_committed_data_is_current(tmp_path):
         assert json.loads((tmp_path / name).read_text()) == load(event, setup), (
             f"{name} is stale: run python -m fugazy_delta.demo prototype/data"
         )
+
+
+def test_every_setup_carries_its_measured_error(data):
+    block = data["accuracy"]
+    method = {"gopro": "gopro", "gopro-racebox": "racebox", "racebox": "racebox"}[data["setup"]["key"]]
+    event = data["event"]["kind"]
+    assert block["method"] == method
+    assert block["approximate"] == (data["setup"]["key"] == "gopro")
+    assert block["seeds"] == accuracy.SEEDS
+    assert [r["key"] for r in block["rows"]] == list(demo.ACCURACY_ROWS)
+    for row in block["rows"]:
+        err = accuracy.error(event, method, row["key"])
+        assert row["summary"] == err.summary()
+        assert row["p95"] == pytest.approx(err.p95, abs=0.0005)
+        assert row["n"] == err.n
+        assert row["bias_ci"][0] <= row["bias"] <= row["bias_ci"][1]
+    optimal = next(r for r in block["rows"] if r["key"] == "optimal")
+    assert optimal["biased"] and optimal["bias"] < 0
+
+
+def test_missed_sector_is_null_not_nan(monkeypatch):
+    """A sector line the lap finder missed is NaN in Python; the JSON says
+    null, and the optimal comes from the laps that did time that sector."""
+    def missing_one(*args, **kwargs):
+        laps = find_laps(*args, **kwargs)
+        laps[2].splits[0] = float("nan")  # lap 3 misses the sector 2 line
+        return laps
+
+    monkeypatch.setattr(demo, "find_laps", missing_one)
+    data = demo.build("track", "racebox")
+    text = demo.dumps(data)
+    back = json.loads(text, parse_constant=_no_nan)
+    assert back["laps"][2]["sectors"][:2] == [None, None]
+    assert back["laps"][2]["time"] is not None
+    assert 3 not in back["optimal"]["sector_laps"][:2]
+    assert back["optimal"]["time"] is not None
+
+
+def test_dumps_refuses_nan():
+    with pytest.raises(ValueError):
+        demo.dumps({"x": float("nan")})

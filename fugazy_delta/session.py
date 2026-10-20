@@ -10,6 +10,8 @@ its content, and the mix of files decides the setup:
 `Session.features()` reports what each setup can deliver, with the reason,
 so the results page can show what is available and what adding a device
 would unlock, instead of quietly showing numbers the data cannot support.
+Every reason that concerns a time quotes that time's measured error for the
+setup's position source, from `accuracy.py`'s committed table.
 """
 
 from __future__ import annotations
@@ -21,18 +23,11 @@ from pathlib import Path
 
 import numpy as np
 
+from . import accuracy
 from .gpmf import Payload, decode_gps5
 from .model import Telemetry
 from .mp4 import read_gpmd
 from .vbo import read_vbo
-
-
-# What GoPro-only timing can promise: 19 in 20 laps, or autocross runs, are
-# within this many seconds of the truth. Measured on the virtual car by
-# tests/test_timing_accuracy.py, which fails if the measurement disagrees.
-# Runs fare worse because the car crosses an autocross start line slowly.
-GOPRO_LAP_ERROR_S = 0.15
-GOPRO_RUN_ERROR_S = 0.7
 
 
 class UnsupportedFile(ValueError):
@@ -48,6 +43,14 @@ class Setup(Enum):
     GOPRO_ONLY = "GoPro"
     GOPRO_RACEBOX = "GoPro + RaceBox"
     RACEBOX_ONLY = "RaceBox"
+
+
+# Which position source times each setup: the RaceBox whenever there is one.
+METHOD = {
+    Setup.GOPRO_ONLY: "gopro",
+    Setup.GOPRO_RACEBOX: "racebox",
+    Setup.RACEBOX_ONLY: "racebox",
+}
 
 
 class Feature(Enum):
@@ -187,32 +190,55 @@ class Session:
         """The best position source: the RaceBox when present, else the camera."""
         return self.logger if self.logger is not None else self.camera_gps
 
-    def features(self) -> dict[Feature, Availability]:
+    @property
+    def method(self) -> str:
+        """The position source's key in the accuracy table."""
+        return METHOD[self.setup]
+
+    def features(self, event: str | None = None) -> dict[Feature, Availability]:
+        """What this setup delivers. `event` ("track" or "autocross") picks
+        which measured errors the reasons quote; without it they quote both."""
         if self.position is None:
             none = Availability(Support.UNAVAILABLE, "no GPS data")
             return {f: none for f in Feature}
 
-        add_racebox = "Add a RaceBox file for full accuracy."
+        method = self.method
+        events = [event] if event else list(accuracy.EVENTS)
+
+        def quote(quantity: str) -> str:
+            parts = []
+            for e in events:
+                err = accuracy.error(e, method, quantity)
+                parts.append(f"{accuracy.label(quantity, e)}{'' if event else f' ({e})'}: {err.summary()}.")
+            return " ".join(parts)
+
         if self.setup is Setup.GOPRO_ONLY:
+            add_racebox = "Add a RaceBox file for full accuracy."
             camera = "GoPro GPS is accurate to about 2 m."
+            slow_start = {
+                None: " Autocross runs fare worst, because the car crosses the start line at walking pace.",
+                "autocross": " Most of that error is at the start line, which the car crosses at walking pace.",
+                "track": "",
+            }[event]
             return {
-                Feature.LAP_TIMES: Availability(Support.APPROXIMATE, (
-                    f"{camera} Expect lap times within about ±{GOPRO_LAP_ERROR_S:g} s and autocross run "
-                    f"times within about ±{GOPRO_RUN_ERROR_S:g} s, because the car crosses the start line "
-                    f"slowly. {add_racebox}"
-                )),
+                Feature.LAP_TIMES: Availability(Support.APPROXIMATE, f"{camera} {quote('lap')}{slow_start} {add_racebox}"),
                 Feature.VIDEO_OVERLAY: Availability(Support.FULL),
-                Feature.DELTA: Availability(Support.APPROXIMATE, f"{camera} Small gains and losses may not be real. {add_racebox}"),
-                Feature.OPTIMAL: Availability(Support.APPROXIMATE, f"{camera} {add_racebox}"),
+                Feature.DELTA: Availability(Support.APPROXIMATE, (
+                    f"{camera} {quote('sector')} Small gains and losses may not be real. {add_racebox}"
+                )),
+                Feature.OPTIMAL: Availability(Support.APPROXIMATE, (
+                    f"{camera} {quote('optimal')} It comes out too fast because taking the best of each "
+                    f"sector also picks the sectors whose GPS error flattered them. {add_racebox}"
+                )),
                 Feature.LINE_COMPARISON: Availability(Support.UNAVAILABLE, "Comparing lines needs sub-metre accuracy. Add a RaceBox file."),
             }
 
-        full = Availability(Support.FULL)
-        overlay = full if self.videos else Availability(Support.UNAVAILABLE, "Add your GoPro video for an overlay.")
+        overlay = Availability(Support.FULL) if self.videos else Availability(
+            Support.UNAVAILABLE, "Add your GoPro video for an overlay.")
         return {
-            Feature.LAP_TIMES: full,
+            Feature.LAP_TIMES: Availability(Support.FULL, f"RaceBox GPS. {quote('lap')}"),
             Feature.VIDEO_OVERLAY: overlay,
-            Feature.DELTA: full,
-            Feature.OPTIMAL: full,
-            Feature.LINE_COMPARISON: full,
+            Feature.DELTA: Availability(Support.FULL, f"RaceBox GPS. {quote('sector')}"),
+            Feature.OPTIMAL: Availability(Support.FULL, f"RaceBox GPS. {quote('optimal')}"),
+            Feature.LINE_COMPARISON: Availability(Support.FULL),
         }

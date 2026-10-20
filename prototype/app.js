@@ -160,8 +160,13 @@ async function start(scenario) {
 // ---------- results ----------
 function feature(data, key) { return data.features.find((f) => f.key === key); }
 function approx(data) { return feature(data, "LAP_TIMES").support === "approximate"; }
-function fmt(seconds, data) { return seconds.toFixed(approx(data) ? 2 : 3); }
+// A time the lap finder could not measure (a missed sector line) is null.
+function fmt(seconds, data) { return seconds == null ? "—" : seconds.toFixed(approx(data) ? 2 : 3); }
 function signed(seconds, digits) { return (seconds > 0 ? "+" : seconds < 0 ? "−" : "±") + Math.abs(seconds).toFixed(digits); }
+// Error sizes: two decimals, three below 0.1 s (matches fugazy_delta/accuracy.py).
+function sec(x) { return Math.abs(x).toFixed(Math.abs(x) < 0.1 ? 3 : 2); }
+function errorOf(data, key) { return data.accuracy.rows.find((r) => r.key === key); }
+function within(data, key) { return `±${sec(errorOf(data, key).p95)}`; }
 function cap(s) { return s[0].toUpperCase() + s.slice(1); }
 
 function renderResults(data) {
@@ -190,9 +195,16 @@ function renderResults(data) {
   const digits = approx(data) ? 2 : 3;
   $("#t-best-label").textContent = `Best ${unit}`;
   $("#t-best").textContent = fmt(best.time, data);
-  $("#t-best-sub").textContent = `${cap(unit)} ${best.number}${approx(data) ? " · approximate" : ""}`;
+  const tag = approx(data) ? "approximate · " : "";
+  const lean = (key) => {
+    const e = errorOf(data, key);
+    return e.biased ? `typically ${sec(e.bias)} s too ${e.bias < 0 ? "fast" : "slow"}, ` : "";
+  };
+  $("#t-best-sub").textContent = `${cap(unit)} ${best.number} · ${tag}${lean("best")}95% within ${within(data, "best")} s`;
   $("#t-optimal").textContent = fmt(data.optimal.time, data);
-  $("#t-optimal-sub").textContent = `${signed(data.optimal.time - best.time, digits)} s · best sectors from ${unit}s ${[...new Set(data.optimal.sector_laps)].join(", ")}`;
+  $("#t-optimal-sub").textContent = data.optimal.time == null
+    ? `No ${unit} timed every sector`
+    : `${signed(data.optimal.time - best.time, digits)} s · ${tag}${lean("optimal")}95% within ${within(data, "optimal")} s`;
   $("#t-count-label").textContent = `${cap(unit)}s`;
   $("#t-count").textContent = String(counted.length);
   $("#t-count-sub").textContent = data.laps.length > counted.length ? `plus ${data.laps.length - counted.length} out lap` : `${(data.event.course_length_m / 1000).toFixed(2)} km course`;
@@ -203,6 +215,7 @@ function renderResults(data) {
   timesNote.textContent = approx(data) ? `Times are approximate. ${feature(data, "LAP_TIMES").reason}` : "";
   renderTable(data);
   renderFeatures(data);
+  renderAccuracy(data);
   renderVideoCard(data);
   renderComparison();
   show("results");
@@ -212,7 +225,9 @@ function renderTable(data) {
   const nSectors = data.laps[0].sectors.length;
   const best = data.laps[data.best - 1];
   const thead = $("#laps-table thead");
-  const head = ["#", "Time", ...Array.from({ length: nSectors }, (_, i) => `S${i + 1}`), "Gap"];
+  // Each time column carries its error: 95% of such times are within ±x s.
+  const pm = (key) => `<span class="pm">${within(data, key)}</span>`;
+  const head = ["#", `Time${pm("lap")}`, ...Array.from({ length: nSectors }, (_, i) => `S${i + 1}${pm(`sector_${i + 1}`)}`), "Gap"];
   thead.innerHTML = `<tr>${head.map((h) => `<th scope="col">${h}</th>`).join("")}</tr>`;
   const tbody = $("#laps-table tbody");
   tbody.replaceChildren();
@@ -226,7 +241,8 @@ function renderTable(data) {
     const cells = [`<td>${lap.number}${tag}</td>`, `<td>${fmt(lap.time, data)}</td>`];
     lap.sectors.forEach((s, i) => {
       const isBest = data.optimal.sector_laps[i] === lap.number;
-      cells.push(`<td class="${isBest ? "best-sector" : ""}"${isBest ? ` title="Best sector ${i + 1}"` : ""}>${s.toFixed(digits)}</td>`);
+      const title = s == null ? ` title="Sector line missed; not timed"` : isBest ? ` title="Best sector ${i + 1}"` : "";
+      cells.push(`<td class="${isBest ? "best-sector" : ""}"${title}>${s == null ? "—" : s.toFixed(digits)}</td>`);
     });
     cells.push(`<td>${lap.best ? "" : signed(lap.time - best.time, digits)}</td>`);
     tr.innerHTML = cells.join("");
@@ -262,6 +278,42 @@ function renderFeatures(data) {
       unlock.querySelector("ul").append(li);
     }
   }
+}
+
+function renderAccuracy(data) {
+  const acc = data.accuracy;
+  const unit = data.event.unit;
+  $("#acc-intro").textContent = `Your times come from ${acc.detail}${acc.approximate ? ", so they are approximate" : ""}. ` +
+    `Each row is how far that kind of time lands from the true time, measured over ${acc.seeds.toLocaleString("en")} simulated sessions.`;
+  const tbody = $("#accuracy-table tbody");
+  tbody.replaceChildren();
+  for (const r of acc.rows) {
+    const tr = document.createElement("tr");
+    const bias = r.biased
+      ? `${sec(r.bias)} ${r.bias < 0 ? "fast" : "slow"}`
+      : "none";
+    tr.innerHTML = `<th scope="row"></th><td></td><td></td><td></td><td></td>`;
+    const [th, ...tds] = tr.children;
+    th.textContent = r.label;
+    tds[0].textContent = bias;
+    tds[0].title = `Mean error ${signed(r.bias, 3)} s, 95% interval ${signed(r.bias_ci[0], 3)} to ${signed(r.bias_ci[1], 3)} s`;
+    tds[1].textContent = `±${sec(r.p95)}`;
+    tds[2].textContent = sec(r.rms);
+    tds[3].textContent = r.n.toLocaleString("en");
+    if (r.biased) tr.className = "biased";
+    tbody.append(tr);
+  }
+  const notes = [];
+  const opt = errorOf(data, "optimal");
+  if (opt.biased) {
+    notes.push(`The optimal ${unit} reads too fast: it takes the best time in each sector, and that also picks the sectors whose GPS error happened to flatter them. ` +
+      `It is shown as measured, not corrected, because how much it flatters depends on how close your ${unit}s are.`);
+  }
+  if (acc.flagged_rate > 0) {
+    notes.push(`About 1 ${unit} in ${Math.round(1 / acc.flagged_rate)} is flagged rather than timed: GPS error put the staged car past the start line.`);
+  }
+  notes.push("Measured on a simulated car and simulated receivers, not yet checked against real RaceBox or GoPro recordings.");
+  $("#acc-notes").replaceChildren(...notes.map((n) => Object.assign(document.createElement("p"), { textContent: n })));
 }
 
 function renderVideoCard(data) {

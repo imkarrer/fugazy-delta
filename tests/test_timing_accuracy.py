@@ -1,120 +1,180 @@
-"""How close detected lap and run times come to the truth, per setup.
+"""The published error table (`fugazy_delta/accuracy_table.json`) is current
+and says what the physics says it should.
 
-These pin the accuracy the app claims (PLAN.md's setup table and the
-reasons in `session.py`) to a measurement: the virtual car, sampled by each
-simulated receiver over several seeds, segmented by `find_laps`, compared
-with the simulator's ground truth.
+The table is measured by `python -m fugazy_delta.accuracy`: the virtual car,
+recorded by each simulated receiver over many seeds, split into laps by
+`find_laps`, compared with the simulator's ground truth.
 
-The error is the receiver's position error along the course divided by the
-car's speed at the line. A track's start/finish line is on the main
-straight (~40 m/s here); an autocross start line is crossed at walking pace
-(~4.5 m/s, three metres after launch), so the same receiver times an
-autocross run far less precisely than a lap.
+Staleness check: the table also records the same statistics over its first
+`CHECK_SEEDS` seeds alone. Every seed fixes its errors, so re-measuring
+those seeds with unchanged code reproduces them exactly. When a change to
+the simulator, a noise model or the lap finder moves them, it moves the
+full table by about as much, so the test fails once any statistic has moved
+by more than the table's own stated uncertainty: twice its bootstrap
+standard error, about the half-width of its 95% interval.
+
+The physics, for reading the numbers: a crossing time's error is the
+receiver's position error along the course divided by the car's speed at
+the line. A track's start/finish line is on the main straight (~40 m/s
+here); an autocross start line is crossed at walking pace (~4.5 m/s, three
+metres after launch), so the same receiver times an autocross run far less
+precisely than a lap.
 """
+
+import math
 
 import numpy as np
 import pytest
 
+from fugazy_delta import accuracy
+from fugazy_delta.accuracy import BIAS_FLOOR_S, EVENTS, METHODS, QUANTITIES, Error
 from fugazy_delta.devices import NO_NOISE, racebox_mini
-from fugazy_delta.gpmf import decode_gps5, hero9_payloads
 from fugazy_delta.segment import LapKind, find_laps
-from fugazy_delta.session import GOPRO_LAP_ERROR_S, GOPRO_RUN_ERROR_S
-from fugazy_delta.sim import autocross_session, example_autocross, example_track, track_session
 
-SEEDS = range(8)
-EVEN = [1.0, 1.0, 1.0]
+STATED = 2.0  # standard errors: about the half-width of the published 95% interval
 
 
-@pytest.fixture(scope="module")
-def track():
-    return track_session(example_track(), [EVEN] * 6, in_lap=0.5)
+def committed(event, method, quantity) -> Error:
+    return accuracy.error(event, method, quantity)
 
 
-@pytest.fixture(scope="module")
-def autox():
-    return autocross_session(example_autocross(), [EVEN] * 6)
-
-
-def receiver(truth, device, seed):
-    if device == "perfect":
-        return racebox_mini(truth, NO_NOISE, seed)
-    if device == "racebox":
-        return racebox_mini(truth, seed=seed)
-    return decode_gps5(hero9_payloads(truth, 0.0, truth.t[-1] - 1.0, seed=seed))
-
-
-def measure(truth, device):
-    """Errors of the counted laps or runs, and how many were timed but flagged."""
-    expected = truth.laps[1:] if truth.course.closed else truth.laps  # track lap 0 is the out-lap
-    errors, flagged = [], 0
-    for seed in SEEDS:
-        found = [lap for lap in find_laps(receiver(truth, device, seed), truth.course.timing_lines())
-                 if lap.kind is LapKind.TIMED]
-        assert len(found) == len(expected), f"{device} seed {seed}: {len(found)} laps"
-        for lap, true in zip(found, expected):
-            if lap.counted:
-                errors.append(lap.time - true.time)
-            else:
-                flagged += 1
-    return np.abs(errors), flagged / (len(expected) * len(SEEDS))
+def test_table_was_made_with_the_current_settings():
+    """Noise models, rates, laps per session, pace range and courses."""
+    table = accuracy.table()
+    assert table["model"] == accuracy.model(), "run python -m fugazy_delta.accuracy"
+    assert table["seeds"] == accuracy.SEEDS
+    assert table["check"]["seeds"] == accuracy.CHECK_SEEDS
+    assert set(table["results"]) == set(EVENTS)
+    for event in EVENTS:
+        assert set(table["results"][event]) == set(METHODS)
 
 
 @pytest.fixture(scope="module")
-def errors(track, autox):
+def remeasured():
     return {
-        (event, device): measure(truth, device)
-        for event, truth in (("track", track), ("autocross", autox))
-        for device in ("perfect", "racebox", "gopro")
+        (event, method): accuracy.fingerprint(accuracy.measure(event, method, range(accuracy.CHECK_SEEDS)))
+        for event in EVENTS for method in METHODS
     }
 
 
-@pytest.mark.parametrize("event", ["track", "autocross"])
-def test_perfect_gps_times_to_the_millisecond(errors, event):
-    """With no position error, interpolating between 25 Hz fixes is exact."""
-    err, flagged = errors[(event, "perfect")]
-    assert err.max() < 0.001
-    assert flagged == 0
+@pytest.mark.parametrize("event", EVENTS)
+@pytest.mark.parametrize("method", METHODS)
+def test_committed_numbers_have_not_drifted(remeasured, event, method):
+    fresh = remeasured[(event, method)]
+    check = accuracy.table()["check"]["results"][event][method]
+    stale = []
+    for q in QUANTITIES:
+        published = committed(event, method, q)
+        for stat in ("bias", "rms", "p95"):
+            moved = fresh[q][stat] - check[q][stat]
+            allowed = STATED * getattr(published, f"{stat}_se") + 1e-6
+            if abs(moved) > allowed:
+                stale.append(f"{q} {stat} moved {moved:+.4f} s; the table states ±{allowed:.4f} s")
+    p = accuracy.flagged_rate(event, method)
+    allowed = STATED * math.sqrt(p * (1 - p) / (accuracy.SEEDS * accuracy.LAPS)) + 1e-6
+    if abs(fresh["flagged_rate"] - check["flagged_rate"]) > allowed:
+        stale.append(f"flagged rate moved from {check['flagged_rate']} to {fresh['flagged_rate']}")
+    assert not stale, "accuracy_table.json is stale; run python -m fugazy_delta.accuracy\n" + "\n".join(stale)
 
 
-def test_racebox_lap_times(errors):
-    """0.5 m per axis at ~40 m/s: about 0.02 s RMS. The bound is ~4 sigma."""
-    err, flagged = errors[("track", "racebox")]
-    assert np.sqrt(np.mean(err**2)) < 0.025
-    assert err.max() < 0.075
-    assert flagged == 0
+def test_every_quantity_has_enough_samples():
+    for event in EVENTS:
+        for method in METHODS:
+            for q in QUANTITIES:
+                e = committed(event, method, q)
+                assert e.seeds >= 0.95 * accuracy.SEEDS
+                assert e.n >= e.seeds
+                # the interval is narrow next to the error it qualifies
+                assert e.bias_ci[1] - e.bias_ci[0] < 0.25 * e.rms
 
 
-def test_gopro_lap_times(errors):
-    """1.7 m per axis at ~40 m/s: about 0.06 s RMS. Most laps fall within
-    ±0.1 s, but not all; 19 in 20 fall within the claimed figure."""
-    err, flagged = errors[("track", "gopro")]
-    assert np.sqrt(np.mean(err**2)) < 0.075
-    assert np.mean(err <= 0.1) >= 0.75
-    assert np.percentile(err, 95) <= GOPRO_LAP_ERROR_S
-    assert err.max() < 0.2
-    assert flagged == 0
+@pytest.mark.parametrize("event", EVENTS)
+@pytest.mark.parametrize("method", METHODS)
+def test_lap_and_run_times_are_unbiased(event, method):
+    """Both ends of a lap move with the same slowly wandering error, so it
+    does not push lap times one way."""
+    assert abs(committed(event, method, "lap").bias) < BIAS_FLOOR_S
+    assert not committed(event, method, "lap").biased
 
 
-def test_racebox_run_times(errors):
+@pytest.mark.parametrize("event", EVENTS)
+@pytest.mark.parametrize("method", METHODS)
+def test_optimal_is_biased_fast(event, method):
+    """Taking the best of noisy sectors picks the errors that flatter."""
+    e = committed(event, method, "optimal")
+    assert e.bias_ci[1] < 0
+    assert e.biased
+    assert "too fast" in e.summary()
+    # and the best lap, one pick from noisy laps, less so
+    assert committed(event, method, "best").bias > e.bias
+
+
+def test_racebox_lap_times():
+    """0.5 m per axis at ~40 m/s: about 0.02 s RMS."""
+    e = committed("track", "racebox", "lap")
+    assert e.rms < 0.025
+    assert e.max < 0.075
+
+
+def test_gopro_lap_times():
+    """1.7 m per axis at ~40 m/s: about 0.06 s RMS."""
+    e = committed("track", "gopro", "lap")
+    assert e.rms < 0.075
+    assert e.p95 < 0.15
+    assert e.max < 0.3
+
+
+def test_racebox_run_times():
     """At a 4.5 m/s start even the RaceBox is only good to about 0.1 s RMS."""
-    err, flagged = errors[("autocross", "racebox")]
-    assert np.sqrt(np.mean(err**2)) < 0.15
-    assert err.max() < 0.5
-    assert flagged == 0
+    e = committed("autocross", "racebox", "lap")
+    assert e.rms < 0.15
+    assert e.max < 0.6
+    assert accuracy.flagged_rate("autocross", "racebox") == 0
 
 
-def test_gopro_run_times(errors):
+def test_gopro_run_times():
     """At a 4.5 m/s start the GoPro is good to about 0.4 s RMS, and now and
     then its error puts the staged car past the line, which flags the run."""
-    err, flagged = errors[("autocross", "gopro")]
-    assert np.sqrt(np.mean(err**2)) < 0.45
-    assert np.percentile(err, 95) <= GOPRO_RUN_ERROR_S
-    assert err.max() < 1.2
-    assert flagged < 0.15
+    e = committed("autocross", "gopro", "lap")
+    assert e.rms < 0.45
+    assert e.p95 < 1.0
+    assert 0 < accuracy.flagged_rate("autocross", "gopro") < 0.15
 
 
-def test_gopro_is_much_worse_than_racebox(errors):
-    for event in ("track", "autocross"):
-        racebox = np.sqrt(np.mean(errors[(event, "racebox")][0] ** 2))
-        gopro = np.sqrt(np.mean(errors[(event, "gopro")][0] ** 2))
-        assert gopro > 2.0 * racebox
+def test_autocross_first_sector_carries_the_slow_start():
+    for method in METHODS:
+        s1, s3 = committed("autocross", method, "sector_1"), committed("autocross", method, "sector_3")
+        assert s1.rms > 2 * s3.rms
+
+
+def test_gopro_is_much_worse_than_racebox():
+    for event in EVENTS:
+        for q in QUANTITIES:
+            assert committed(event, "gopro", q).rms > 2.0 * committed(event, "racebox", q).rms, (event, q)
+
+
+@pytest.mark.parametrize("event", EVENTS)
+def test_perfect_gps_times_to_the_millisecond(event):
+    """With no position error, interpolating between 25 Hz fixes is exact,
+    so every error in the table comes from the receivers' noise."""
+    truth = accuracy.session(event, 0)
+    expected = truth.laps[1:] if truth.course.closed else truth.laps
+    found = [lap for lap in find_laps(racebox_mini(truth, NO_NOISE), truth.course.timing_lines())
+             if lap.kind is LapKind.TIMED]
+    assert len(found) == len(expected)
+    for lap, true in zip(found, expected):
+        assert lap.counted
+        assert abs(lap.time - true.time) < 0.001
+        assert np.max(np.abs(lap.sector_times - true.sector_times)) < 0.001
+
+
+def test_summary_wording():
+    biased = Error(n=100, seeds=100, bias=-0.3, bias_ci=(-0.34, -0.26), bias_se=0.02,
+                   rms=0.35, rms_ci=(0.3, 0.4), rms_se=0.02, p95=0.45, p95_ci=(0.4, 0.5), p95_se=0.02, max=0.6)
+    assert biased.summary() == "typically 0.30 s too fast (bias −0.30 ± 0.04 s), 95% within ±0.45 s"
+    tiny = Error(n=100, seeds=100, bias=0.004, bias_ci=(0.001, 0.007), bias_se=0.0015,
+                 rms=0.06, rms_ci=(0.05, 0.07), rms_se=0.005, p95=0.11, p95_ci=(0.1, 0.12), p95_se=0.005, max=0.2)
+    assert not tiny.biased  # real, but below the 0.01 s the app shows
+    assert tiny.summary() == "no measurable bias, 95% within ±0.11 s"
+    assert accuracy.signed(-0.0001) == "0.000"
+    assert accuracy.signed(0.034) == "+0.034"

@@ -280,3 +280,41 @@ def _runs(t_end, crossings, empty, min_lap_time) -> list[Lap]:
     for run in runs:
         _fill_splits(run, crossings, run.end)
     return runs
+
+
+def best_lap(laps: list[Lap]) -> int | None:
+    """Index of the fastest counted lap or run; None when none was counted."""
+    counted = [i for i, lap in enumerate(laps) if lap.counted]
+    return min(counted, key=lambda i: laps[i].time) if counted else None
+
+
+@dataclass(frozen=True)
+class Optimal:
+    """The best time in each sector across the counted laps, summed.
+
+    `sector_laps[k]` is the index of the lap that supplied sector k, None
+    when no counted lap has a time for it; `time` is then NaN, because an
+    optimal lap with a sector missing would look faster than any lap.
+    """
+
+    time: float
+    sector_laps: list[int | None]
+
+
+def optimal_lap(laps: list[Lap]) -> Optimal:
+    counted = [i for i, lap in enumerate(laps) if lap.counted]
+    if not counted:
+        return Optimal(float("nan"), [])
+    sectors = np.array([laps[i].sector_times for i in counted])
+    picks: list[int | None] = []
+    total = 0.0
+    for k in range(sectors.shape[1]):
+        column = sectors[:, k]
+        if not np.any(np.isfinite(column)):
+            picks.append(None)
+            total = float("nan")
+            continue
+        j = int(np.nanargmin(column))
+        picks.append(counted[j])
+        total += float(column[j])
+    return Optimal(total, picks)

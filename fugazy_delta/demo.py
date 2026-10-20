@@ -11,6 +11,11 @@ What is real and what is not:
 
 - Setup, feature support and reasons come from `Session.features()` on the
   real files.
+- Every time carries its error: the `accuracy` block is the measured error
+  of each kind of time for the setup's position source, from
+  `accuracy.py`'s committed table.
+- A sector the lap finder could not time is written as null, not NaN,
+  which is not valid JSON.
 - Lap, run and sector times are found by `segment.find_laps` on the
   position source the session chose (RaceBox when present, else GoPro GPS),
   against the course's timing lines, so GoPro-only times carry the camera's
@@ -27,17 +32,19 @@ Run inside the Flox environment (it needs ffmpeg):
 from __future__ import annotations
 
 import json
+import math
 import sys
 import tempfile
 from pathlib import Path
 
 import numpy as np
 
+from . import accuracy
 from .fixtures import gopro_mp4, racebox_vbo
 from .geo import to_local
 from .model import Telemetry
-from .segment import LapKind, find_laps
-from .session import Session, Setup
+from .segment import LapKind, best_lap, find_laps, optimal_lap
+from .session import METHOD, Session, Setup
 from .sim import Truth, autocross_session, example_autocross, example_track, track_session
 
 GRID_POINTS = 241  # samples per lap on the shared distance grid (map and delta)
@@ -134,8 +141,47 @@ def _lap_on_grid(position: Telemetry, start: float, end: float, length: float, o
     }
 
 
-def _r(values, digits: int) -> list[float]:
-    return [round(float(v), digits) for v in values]
+def _num(value, digits: int) -> float | None:
+    """Rounded, or None (JSON null) for NaN: a time that was not measured."""
+    value = float(value)
+    return round(value, digits) if math.isfinite(value) else None
+
+
+def _r(values, digits: int) -> list[float | None]:
+    return [_num(v, digits) for v in values]
+
+
+# The rows of the accuracy panel, in the order the page shows them.
+ACCURACY_ROWS = ("lap", "sector_1", "sector_2", "sector_3", "best", "optimal")
+
+
+def accuracy_block(event: str, setup: Setup) -> dict:
+    """The measured error of each kind of time this setup reports."""
+    method = METHOD[setup]
+    rows = []
+    for q in ACCURACY_ROWS:
+        err = accuracy.error(event, method, q)
+        rows.append({
+            "key": q,
+            "label": accuracy.label(q, event),
+            "n": err.n,
+            "bias": round(err.bias, 3),
+            "bias_ci": _r(err.bias_ci, 3),
+            "biased": err.biased,
+            "rms": round(err.rms, 3),
+            "p95": round(err.p95, 3),
+            "worst": round(err.max, 3),
+            "summary": err.summary(),
+        })
+    return {
+        "method": method,
+        "label": accuracy.METHOD_LABELS[method],
+        "detail": accuracy.METHOD_DETAILS[method],
+        "approximate": setup is Setup.GOPRO_ONLY,
+        "seeds": accuracy.table()["seeds"],
+        "flagged_rate": accuracy.flagged_rate(event, method),
+        "rows": rows,
+    }
 
 
 def build(event: str, setup_key: str, truth: Truth | None = None) -> dict:
@@ -152,11 +198,8 @@ def build(event: str, setup_key: str, truth: Truth | None = None) -> dict:
     position = session.position
     laps_found = [lap for lap in find_laps(position, course.timing_lines()) if lap.kind is not LapKind.IN]
     counted = [i for i, lap in enumerate(laps_found) if lap.counted]
-    times = np.array([lap.time for lap in laps_found])
-    best = min(counted, key=lambda i: times[i])
-    sectors = np.array([lap.sector_times for lap in laps_found])
-    best_sector_laps = [counted[int(np.nanargmin(sectors[counted, s]))] for s in range(sectors.shape[1])]
-    optimal = float(sum(sectors[lap, s] for s, lap in enumerate(best_sector_laps)))
+    best = best_lap(laps_found)
+    optimal = optimal_lap(laps_found)
 
     grids = [_lap_on_grid(position, lap.start, lap.end, course.length, course.origin) for lap in laps_found]
     distance = np.linspace(0.0, course.length, GRID_POINTS)
@@ -171,7 +214,7 @@ def build(event: str, setup_key: str, truth: Truth | None = None) -> dict:
     for i, lap in enumerate(laps_found):
         laps.append({
             "number": i + 1,
-            "time": round(float(times[i]), 3),
+            "time": _num(lap.time, 3),
             "sectors": _r(lap.sector_times, 3),
             "counted": i in counted,
             "out_lap": lap.kind is LapKind.OUT,
@@ -191,10 +234,12 @@ def build(event: str, setup_key: str, truth: Truth | None = None) -> dict:
         "warnings": session.warnings,
         "features": [
             {"key": f.name, "label": f.value, "support": a.support.value, "reason": a.reason}
-            for f, a in session.features().items()
+            for f, a in session.features(event).items()
         ],
+        "accuracy": accuracy_block(event, setup),
         "best": best + 1,
-        "optimal": {"time": round(optimal, 3), "sector_laps": [i + 1 for i in best_sector_laps]},
+        "optimal": {"time": _num(optimal.time, 3),
+                    "sector_laps": [None if i is None else i + 1 for i in optimal.sector_laps]},
         "course": {
             "start": {"x": round(float(course.east[0]), 1), "y": round(float(course.north[0]), 1)},
             "finish": {"x": round(float(course.east[-1]), 1), "y": round(float(course.north[-1]), 1)},
@@ -213,10 +258,15 @@ def main(argv: list[str]) -> None:
         for setup_key in SETUPS:
             data = build(event, setup_key, truth)
             path = out / f"{event}-{setup_key}.json"
-            path.write_text(json.dumps(data, separators=(",", ":")) + "\n")
+            path.write_text(dumps(data) + "\n")
             best = data["laps"][data["best"] - 1]
             print(f"{path}: {data['setup']['label']}, best {data['event']['unit']} {best['number']} "
-                  f"{best['time']:.3f} s, optimal {data['optimal']['time']:.3f} s")
+                  f"{best['time']:.3f} s, optimal {data['optimal']['time']} s")
+
+
+def dumps(data: dict) -> str:
+    """Compact JSON; refuses NaN, which browsers' JSON.parse rejects."""
+    return json.dumps(data, separators=(",", ":"), allow_nan=False)
 
 
 if __name__ == "__main__":
