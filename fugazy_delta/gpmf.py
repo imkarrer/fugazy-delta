@@ -17,6 +17,14 @@ The HERO9 writes, per payload:
 Only one GPSU per payload means the ~18 GPS5 samples in it have no
 timestamps of their own. Readers spread them evenly across the payload's
 duration; `decode_gps5` does the same, using the MP4 sample times.
+
+The HERO11 adds GPS9 (and the HERO13 writes only GPS9): the same fixes
+at 10 Hz, each with its own UTC time as days since 2000 and seconds since
+midnight, plus DOP and fix type. `decode_gps` prefers GPS9 when it is
+there. On the real HERO11 sample each payload's GPSU is 1.4 s after the
+GPS9 time of its first sample, so GPS5 timed from GPSU would be 1.4 s
+late on that camera; whether the HERO9's GPSU lags the same way is not
+known yet.
 """
 
 from __future__ import annotations
@@ -136,6 +144,11 @@ def parse_gpsu(value: str) -> float:
 
 
 GPS5_SCAL = (10_000_000, 10_000_000, 1000, 1000, 100)
+# GPS9: lat, lon, alt, 2D speed, 3D speed, days since 2000, seconds since
+# midnight, DOP, fix. TYPE "lllllllSS": seven int32 then two uint16.
+GPS9_SCAL = (10_000_000, 10_000_000, 1000, 1000, 100, 1, 1000, 100, 1)
+GPS9_TYPE = "lllllllSS"
+GPS9_EPOCH = datetime(2000, 1, 1, tzinfo=timezone.utc).timestamp()
 ACCL_SCAL = 418
 
 
@@ -248,6 +261,91 @@ def hero9_payloads(
     return payloads
 
 
+def gps9_row(lat, lon, alt, speed2d, speed3d, utc, dop=1.2, fix=3) -> bytes:
+    """One packed GPS9 sample (big-endian, 32 bytes)."""
+    days, secs = divmod(utc - GPS9_EPOCH, 86400.0)
+    values = (lat, lon, alt, speed2d, speed3d, days, secs, dop, fix)
+    ints = [int(round(v * k)) for v, k in zip(values, GPS9_SCAL)]
+    return struct.pack(">7i2H", *ints)
+
+
+# On the real HERO11 sample (gopro-telemetry's hero11.raw), each payload's
+# GPSU is 1.4 s after the GPS9 time of the payload's first sample, and
+# GPS5 holds the same samples as GPS9.
+HERO11_GPSU_LAG = 1.4
+
+
+def hero11_payloads(
+    truth: Truth,
+    record_start: float,
+    record_seconds: float,
+    gps_hz: float = 10.0,
+    payload_seconds: float = 1.001,
+    seed: int = 0,
+    noise: GnssNoise = HERO9_NOISE,
+    model: str = "HERO11 Black",
+    with_gps5: bool = True,
+    gps_fix: int = 3,
+) -> list[Payload]:
+    """GPMF payloads a HERO11 (GPS9 and GPS5) or HERO13 (GPS9 only, pass
+    `with_gps5=False`) would write. Every GPS9 sample carries its own UTC
+    time on the receiver's 10 Hz epochs; GPSU is written
+    `HERO11_GPSU_LAG` after the payload's first sample, as on the real
+    HERO11. The receiver error model is the HERO9's, the closest one the
+    simulator has."""
+    rng = np.random.default_rng(seed)
+    n_payloads = int(record_seconds // payload_seconds)
+    first = np.ceil((truth.utc0 + record_start) * gps_hz) / gps_hz
+    utc_all = np.round((first + np.arange(int(n_payloads * payload_seconds * gps_hz)) / gps_hz) * gps_hz) / gps_hz
+    fixes = gnss_fixes(truth, utc_all, noise, rng)
+    payloads, total = [], 0
+    for p in range(n_payloads):
+        start = p * payload_seconds
+        lo = truth.utc0 + record_start + start
+        sel = np.flatnonzero((utc_all >= lo) & (utc_all < lo + payload_seconds))
+        if not len(sel):
+            continue
+        rows = b"".join(
+            gps9_row(fixes["lat"][i], fixes["lon"][i], 250.0, fixes["speed"][i], fixes["speed"][i], utc_all[i],
+                     fix=gps_fix)
+            for i in sel
+        )
+        stmp_us = round(start * 1e6)
+        gps9 = nested(
+            "STRM",
+            numbers("STMP", "J", [[stmp_us]]),
+            numbers("TSMP", "L", [[total + len(sel)]]),
+            string("STNM", "GPS (Lat., Long., Alt., 2D, 3D, days, secs, DOP, fix)"),
+            klv("UNIT", "c", 3, 9, b"degdegm\0\0m/sm/s\0\0\0s\0\0\0\0\0\0\0\0"),
+            klv("TYPE", "c", 9, 1, GPS9_TYPE.encode()),
+            numbers("SCAL", "l", [[k] for k in GPS9_SCAL]),
+            klv("GPS9", "?", 32, len(sel), rows),
+        )
+        streams = [gps9]
+        if with_gps5:
+            gps5 = np.column_stack([
+                np.round(fixes["lat"][sel] * GPS5_SCAL[0]), np.round(fixes["lon"][sel] * GPS5_SCAL[1]),
+                np.full(len(sel), round(250.0 * GPS5_SCAL[2])),
+                np.round(fixes["speed"][sel] * GPS5_SCAL[3]), np.round(fixes["speed"][sel] * GPS5_SCAL[4]),
+            ])
+            streams.insert(0, nested(
+                "STRM",
+                numbers("STMP", "J", [[stmp_us]]),
+                numbers("TSMP", "L", [[total + len(sel)]]),
+                string("STNM", "GPS (Lat., Long., Alt., 2D speed, 3D speed)"),
+                numbers("GPSF", "L", [[gps_fix]]),
+                klv("GPSU", "U", 16, 1, format_gpsu(utc_all[sel[0]] + HERO11_GPSU_LAG).encode()),
+                numbers("GPSP", "S", [[120]]),
+                klv("UNIT", "c", 3, 5, b"degdegm\0\0m/sm/s"),
+                numbers("SCAL", "l", [[k] for k in GPS5_SCAL]),
+                numbers("GPS5", "l", gps5),
+            ))
+        total += len(sel)
+        devc = nested("DEVC", numbers("DVID", "L", [[1]]), string("DVNM", model), *streams)
+        payloads.append(Payload(devc, start, payload_seconds))
+    return payloads
+
+
 def _streams(payload: bytes):
     for devc in decode(payload):
         if devc.key != "DEVC":
@@ -285,3 +383,45 @@ def decode_gps5(payloads: list[Payload], source: str = "gopro") -> Telemetry:
     keep = np.concatenate([[True], np.diff(t) > 0])
     t, v = t[keep], v[keep]
     return Telemetry(source=source, time=t, lat=v[:, 0], lon=v[:, 1], alt=v[:, 2], speed=v[:, 3])
+
+
+def decode_gps9(payloads: list[Payload], source: str = "gopro") -> Telemetry:
+    """GPS9 samples (HERO11, HERO13), each timed by its own UTC fields.
+    Samples without a 2D or 3D fix are dropped."""
+    rows = []
+    for payload in payloads:
+        for strm in _streams(payload.data):
+            gps9 = strm.find("GPS9")
+            if gps9 is None:
+                continue
+            typ = strm.find("TYPE")
+            if typ is not None and typ.text() != GPS9_TYPE:
+                raise ValueError(f"GPS9 with unexpected TYPE {typ.text()!r}")
+            scal = strm.find("SCAL").values().ravel()
+            raw = np.array([struct.unpack_from(">7i2H", gps9.data, 32 * k) for k in range(gps9.repeat)],
+                           dtype=np.float64)
+            rows.append(raw / scal)
+    if not rows:
+        raise ValueError("no GPS9 samples")
+    v = np.concatenate(rows)
+    v = v[v[:, 8] >= 2]
+    if not len(v):
+        raise ValueError("no GPS9 samples with a fix")
+    t = GPS9_EPOCH + v[:, 5] * 86400.0 + v[:, 6]
+    order = np.argsort(t, kind="stable")
+    t, v = t[order], v[order]
+    keep = np.concatenate([[True], np.diff(t) > 0])
+    t, v = t[keep], v[keep]
+    return Telemetry(source=source, time=t, lat=v[:, 0], lon=v[:, 1], alt=v[:, 2], speed=v[:, 3])
+
+
+def has_gps9(payloads: list[Payload]) -> bool:
+    return any(strm.find("GPS9") is not None for p in payloads[:5] for strm in _streams(p.data))
+
+
+def decode_gps(payloads: list[Payload], source: str = "gopro") -> Telemetry:
+    """The camera's GPS: GPS9 when the camera writes it (every sample has
+    its own UTC time), else GPS5 spread across each payload from GPSU."""
+    if has_gps9(payloads):
+        return decode_gps9(payloads, source)
+    return decode_gps5(payloads, source)

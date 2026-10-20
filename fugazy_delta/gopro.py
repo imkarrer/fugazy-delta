@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .gpmf import decode, decode_gps5
+from .gpmf import decode, decode_gps
 from .importers import COARSE, Head, Kind, Recording, UnsupportedFile, register
 from .mp4 import read_gpmd
 
@@ -44,7 +44,7 @@ def camera_name(payloads) -> str:
 def read_gopro(path: Path) -> Recording:
     payloads = read_gpmd(path)
     try:
-        gps = decode_gps5(payloads)
+        gps = decode_gps(payloads)
     except ValueError:
         gps = None
     return Recording(Kind.GOPRO, gps, camera_name(payloads), profile=COARSE, camera=True, payloads=payloads)

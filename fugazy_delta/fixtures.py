@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .devices import HERO9_NOISE, RACEBOX_NOISE, GnssNoise, racebox_mini
-from .gpmf import CameraClock, hero9_payloads
+from .gpmf import CameraClock, hero9_payloads, hero11_payloads
 from .mp4 import add_gpmd_track
 from .sim import Truth
 from .vbo import write_vbo
@@ -70,12 +70,18 @@ def gopro_mp4(
     seed: int = 0,
     noise: GnssNoise = HERO9_NOISE,
     gps_fix: int = 3,
+    camera: str = "HERO9",
 ) -> list:
-    """Write a HERO9-like MP4 recorded from `record_start` (s after utc0).
+    """Write a GoPro-like MP4 recorded from `record_start` (s after utc0).
 
-    Returns the payloads written, for tests to compare against.
+    `camera` is "HERO9" (GPS5), "HERO11" (GPS9 and GPS5) or "HERO13"
+    (GPS9 only). Returns the payloads written, for tests to compare against.
     """
-    payloads = hero9_payloads(truth, record_start, record_seconds, clock, seed=seed, noise=noise, gps_fix=gps_fix)
+    if camera == "HERO9":
+        payloads = hero9_payloads(truth, record_start, record_seconds, clock, seed=seed, noise=noise, gps_fix=gps_fix)
+    else:
+        payloads = hero11_payloads(truth, record_start, record_seconds, seed=seed, noise=noise, gps_fix=gps_fix,
+                                   model=f"{camera} Black", with_gps5=camera == "HERO11")
     utc_start = truth.utc0 + record_start
     with tempfile.TemporaryDirectory() as tmp:
         video = Path(tmp) / "video.mp4"
