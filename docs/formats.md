@@ -5,8 +5,10 @@ recorded them. That means reading the files that drivers' lap timers and
 data loggers already produce. This document lists the devices US amateur
 autocross, HPDE and time-attack drivers use, what each one exports, how
 each format is specified, where real sample files exist, and the order
-in which to build importers. It was researched in October 2026. No
-importer code is written yet.
+in which to build importers. It was researched in October 2026. The
+importers in recommended-order items 1–8 of section 7 are now built;
+PLAN.md section 7 records their status, the accuracy profile each device
+quotes, and why the rest are not done.
 
 **Recommendation:** the first three importers to build are fixes to
 the VBO reader, RaceBox CSV and RaceChrono CSV v3. Together they cover
@@ -354,6 +356,9 @@ redistribute it, so it does not bind this repo's code.
 ## 6. Problems in the existing VBO reader
 
 ### 6.1 Real RaceBox VBO files fail to load, and Racelogic files can get the wrong date
+
+All three items below are fixed in `vbo.py`; this section records what
+was wrong.
 
 1. `vbo.py` maps longitude from `long`, `lon` or `longitude`. RaceBox
    names the column `lng`, so a real RaceBox VBO raises

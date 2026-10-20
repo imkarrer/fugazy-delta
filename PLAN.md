@@ -23,8 +23,9 @@ flowchart LR
 
 Rules that keep it simple:
 
-- **No "pick your device" step.** The app identifies each file itself: GoPro
-  MP4, RaceBox VBO or CSV, GPX.
+- **No "pick your device" step.** The app identifies each file by its
+  content: GoPro MP4, RaceBox, AiM, RaceChrono, TrackAddict, RaceCapture
+  and Racelogic exports, GPX and NMEA (section 7).
 - **No manual sync.** GoPro and RaceBox are aligned on GPS time.
 - **No course drawing.** Track days match a library of known tracks by GPS.
   At an autocross the organiser sets start and finish once per event, or
@@ -223,7 +224,7 @@ one test suite.
 | Component | Job | Build or reuse |
 |---|---|---|
 | Browser extraction | Copy the `gpmd` track out of a multi-GB MP4 without reading the whole file | Reuse mp4box.js; **spike** on a 4 GB file |
-| Parsers | GoPro GPMF (GPS5, ACCL, GYRO), RaceBox VBO and CSV, GPX → `Telemetry` | GPMF and VBO done in phase 0; CSV and GPX to do |
+| Parsers | Every device file → `Recording` (`Telemetry` plus device, accuracy profile, lap markers, warnings) | Done for ten formats (section 7); FIT, camera trailers and the rest wait for real files |
 | Sync | Align devices on GPS time; handle chaptered GoPro files; fall back to matching motion data | Build |
 | Fusion | Prefer RaceBox 25 Hz position; use GoPro GPS when there is no RaceBox | Build |
 | Segmentation | Start/finish crossings, sectors, staging, out- and in-laps | Started in `segment.py`: crossings, sectors, out- and in-laps, staging, DNFs, dropouts; tested on the virtual car only |
@@ -247,8 +248,12 @@ duration from the MP4 sample table. Sync therefore depends on
 1. GPSU being accurate to the payload, and
 2. the even-spread assumption holding within the payload.
 
-GoPro's GPS timestamps may also lag the position they label (community
-reports; unverified). So the sync stage measures the GoPro's
+GoPro's GPS timestamps may also lag the position they label. On the real
+HERO11 sample they do: its GPS5 holds the same fixes as its GPS9, but each
+payload's GPSU is 1.4 s after the GPS9 time of the payload's first fix,
+so GPS5 spread from GPSU is 1.4 s late on that camera (the importer reads
+GPS9 when a camera writes it). Whether the HERO9 lags the same way is not
+known until a real HERO9 clip is in hand. So the sync stage measures the GoPro's
 offset against the RaceBox (whose 25 Hz samples each carry their own UTC
 time) rather than trusting GPSU, and the virtual-car tests inject a known
 GPSU latency (`CameraClock.gpsu_latency`) so that stage can be checked
@@ -272,10 +277,13 @@ flowchart LR
 
 Four layers:
 
-1. **Real files.** GoPro's `gpmf-parser` samples (HERO5, HERO6, HERO8),
-   fetched and checksum-pinned by `scripts/fetch-fixtures.sh`. For the
-   RaceBox, one real VBO and CSV export from a club member gives the true
-   column layout.
+1. **Real files.** GoPro's `gpmf-parser` samples (HERO5, HERO6, HERO8)
+   and real exports of every other format read (section 7), fetched and
+   checksum-pinned by `scripts/fetch-fixtures.sh` or, where their licence
+   allows, committed. Public RaceBox exports now confirm its column
+   layout; a session from the author's own RaceBox and HERO9, timed
+   against the event's lights, is still needed to calibrate the noise
+   models.
 2. **Virtual car with known answers.** Because the truth is known, tests
    assert exact outcomes:
    - sync recovers the injected GoPro offset to within one video frame
@@ -318,8 +326,86 @@ Phases 0–2 need no hardware, so they can be done before the 2027 season.
   without loading the whole file. Spike before phase 1 depends on it.
 - **Getting files off the GoPro** — the prototype test decides whether phone upload
   is viable or the laptop is the path.
-- **RaceBox export columns** — the VBO reader matches columns by name; the
-  names RaceBox actually uses are unconfirmed until a real export is in hand.
+- **RaceBox export columns** — settled for position and time: real RaceBox
+  VBO, CSV and GPX exports read, and their positions agree. Two details
+  remain: RaceBox's VBO `LongAcc` sits about 0.28 g below the change of
+  speed on the real Thruxton file (its `LatAcc` matches the turning
+  acceleration), and its GPX times run 0.16 s ahead of its CSV in
+  RacePlex's sample. Neither changes a lap time.
+- **HERO9 GPS latency** — GPSU is 1.4 s after the first fix it labels on a
+  real HERO11 (section 2). If the HERO9 does the same, GoPro-only results
+  are unaffected (a lap's two ends shift together) but syncing a HERO9
+  with a logger has to measure the offset rather than assume it, as the
+  sync stage already plans.
 - **GoPro accelerometer axes** — assumed `ORIN "ZXY"` with a forward-facing
   level camera. Verify on a real mounted clip before the fallback that syncs
   devices by matching motion data relies on it.
+
+## 7. Importers
+
+`fugazy_delta/importers.py` identifies every uploaded file by content and
+reads it into a `Recording`: the samples in our units, the device, the
+accuracy profile its times quote, whether its clock was inferred, the lap
+markers the device recorded, and warnings. docs/formats.md section 8
+describes the design and the formats' research. Each importer is tested on
+files written from the simulator's ground truth and read back, and on real
+files where any exist (`scripts/fetch-fixtures.sh` lists those it fetches;
+`tests/fixtures/samples/SOURCES.md` the ones committed).
+
+| Format | Devices | Real files tested |
+|---|---|---|
+| VBO | RaceBox, Racelogic VBOX, and app exports | RaceBox Thruxton, VBOX Sport Shelsley, Video HD2 Thunderhill |
+| RaceBox CSV | RaceBox Mini, Mini S, Micro | RaceBox Mini, Lake Elsinore |
+| RaceChrono CSV v3 | RaceChrono Pro with any receiver | Massa Finalese excerpt |
+| AiM XRK / XRZ | AiM Solo 2, Solo 2 DL, MXm, MyChron | AiM's Adria Kart sample, a Tsukuba session |
+| TrackAddict CSV | TrackAddict with phone or external GPS | Saint-Eustache session, timed against TrackAddict's own laps |
+| GPX | RaceBox, RaceChrono and any app | RaceBox GPX against its CSV; GPSBabel's track |
+| NMEA 0183 | RaceChrono, Harry's LapTimer, any receiver | GPSBabel's track, against its GPX |
+| GoPro GPS9 | HERO11, HERO13 | HERO11 payloads (committed) |
+| RaceCapture log | AutoSport Labs RaceCapture | Formula Student autocross, Hockenheim; a log without a fix |
+| AiM CSV | AiM via Race Studio 3 | PittRace export (committed) |
+
+### Which measured error each device quotes
+
+Section 1 measures two receivers: the RaceBox and the GoPro HERO9. No
+other device has a measured noise profile here: there is no rating or
+real recording timed against the truth for any of them. So every device
+quotes one of those two rows, and none gets numbers of its own.
+
+| Device | Quotes | Why |
+|---|---|---|
+| RaceBox, any export | RaceBox | Its own row |
+| Racelogic VBOX | RaceBox | Like the RaceBox, a dedicated 10–25 Hz receiver with its own antenna. Unmeasured |
+| AiM loggers | RaceBox | Like the RaceBox, a dedicated logger with its own antenna; 25 Hz on the 2026 file, 8 Hz on AiM's 2016 sample. Unmeasured |
+| RaceCapture | RaceBox | Like the RaceBox, a dedicated logger with its own antenna; 10 Hz on the real file. Unmeasured |
+| RaceChrono, TrackAddict, and GPX, NMEA or VBO from other apps | GoPro | The file does not say whether the receiver is the phone or an external one, so the larger error is quoted. A RaceChrono session recorded through a RaceBox quotes it too |
+| GoPro HERO11, HERO13 | GoPro | The HERO9's row; the HERO11's receiver is unrated here |
+
+A file whose GPS runs below 5 Hz carries a warning that its times are
+less accurate than quoted, because the GoPro row was measured at 18 Hz.
+The real TrackAddict session shows the size of it: on 1 Hz phone GPS our
+lap times and TrackAddict's own differ by 0.35 s typically and 0.7 s at
+most, against ±0.11 s for 19 GoPro laps in 20. Lap timing treats a gap
+between fixes as a dropout only beyond 1 s or two and a half fix
+intervals, whichever is longer, so 1 Hz laps are counted.
+
+When an upload has several loggers, a dedicated logger times the session
+over a phone app, then one with UTC on every sample, then the highest
+rate (`session._rank`).
+
+### Formats not done, and why
+
+- **FIT (Garmin Catalyst):** no real Catalyst file was found, and which
+  messages and rates Catalyst writes is unverified. Waits for a user's file.
+- **Insta360 and DJI cameras:** they record GPS only with a GPS remote, no
+  public sample with GPS was found, and DJI's schema differs per model. They
+  belong with the video work in phase 3.
+- **KML:** a `LineString` has no times, so it cannot be timed at all. Every
+  device that writes KML also writes a format that is read here.
+- **Qstarz BIN:** no magic number, no sample, and the only description is
+  GPSBabel's reverse engineering. Waits for a user's file.
+- **MoTeC .ld:** mostly pro cars and sim racing, local time only, and no
+  downloadable sample.
+- **Harry's LapTimer CSV, Apex Pro CSV, SoloStorm .run:** no sample or
+  column list was found. Harry's users can export VBO, GPX or NMEA, which
+  are read. SoloStorm's site now redirects elsewhere, so it appears defunct.
