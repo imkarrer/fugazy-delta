@@ -59,31 +59,61 @@ function restart(message) {
 }
 
 // ---------- upload ----------
-function classify(file) {
-  const ext = file.name.split(".").pop().toLowerCase();
-  if (["mp4", "lrv", "360"].includes(ext)) return "gopro";
-  if (["vbo", "csv"].includes(ext)) return "racebox";
+// Identify each file by its content, the way fugazy_delta/importers.py
+// does: binary signatures first, then text signatures on the first 64 KB
+// with any byte-order mark stripped. Only the start of a file is read, so
+// a 4 GB GoPro chapter costs nothing. The demo then shows the setup the
+// mix of files implies: a video is "gopro", any data logger "racebox".
+const HEAD_BYTES = 64 * 1024;
+const TEXT_SIGNATURES = [
+  [/^\s*this file is created using racechrono/i, "RaceChrono CSV"],
+  [/^\s*# racerender data:.*trackaddict/i, "TrackAddict CSV"],
+  [/^\s*"?format"?\s*[,;\t]\s*"?aim csv file/i, "AiM CSV"],
+  [/^\s*"?"?interval"?"?\|/i, "RaceCapture log"],
+  [/^[ \t]*"?record"?\s*,\s*"?time"?\s*,|^[ \t]*"?format"?\s*,\s*"?racebox/im, "RaceBox CSV"],
+  [/\[column names\]|file created on/i, "VBO"],
+  [/^\s*(<\?xml[^>]*>\s*)?<gpx[\s>]/i, "GPX"],
+  [/^\$G[A-Z]RMC,[^\n]*\n(?:[^\n]*\n)*?\$G[A-Z]RMC,/m, "NMEA"],
+];
+
+async function classify(file) {
+  const head = new Uint8Array(await file.slice(0, HEAD_BYTES).arrayBuffer());
+  const ascii = (a, b) => String.fromCharCode(...head.subarray(a, b));
+  if (ascii(4, 8) === "ftyp") return { kind: "video", label: "GoPro video" };
+  if (ascii(0, 5) === "<hCNF") return { kind: "logger", label: "AiM XRK" };
+  if (head[0] === 0x78 && [0x01, 0x5e, 0x9c, 0xda].includes(head[1])) {
+    // XRZ: zlib around an XRK stream; the browser can inflate the start
+    try {
+      const stream = new Blob([head]).stream().pipeThrough(new DecompressionStream("deflate"));
+      const { value } = await stream.getReader().read();
+      if (value && String.fromCharCode(...value.subarray(0, 5)) === "<hCNF") return { kind: "logger", label: "AiM XRZ" };
+    } catch { /* not zlib after all */ }
+  }
+  let text = new TextDecoder("utf-8").decode(head);
+  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+  if (head.subarray(0, 4096).includes(0)) return null;
+  for (const [re, label] of TEXT_SIGNATURES) if (re.test(text)) return { kind: "logger", label };
   return null;
 }
 
-function handleFiles(fileList) {
+async function handleFiles(fileList) {
   const files = [...fileList];
-  const kinds = files.map(classify);
-  const bad = files.filter((_, i) => !kinds[i]).map((f) => f.name);
+  const found = await Promise.all(files.map(classify));
+  const bad = files.filter((_, i) => !found[i]).map((f) => f.name);
   const err = $("#drop-error");
   if (bad.length) {
-    err.textContent = `${bad.join(", ")}: not a GoPro video or a RaceBox export. From RaceBox, export the session as VBO on racebox.pro.`;
+    err.textContent = `${bad.join(", ")}: not a file format we can read. From RaceBox, export the session as VBO or CSV on racebox.pro; from a phone app such as RaceChrono or TrackAddict, export CSV, VBO or GPX; from a GoPro, upload the original MP4 from the SD card.`;
     err.hidden = false;
     if (bad.length === files.length) return;
   } else {
     err.hidden = true;
   }
-  const hasGoPro = kinds.includes("gopro");
-  const hasRaceBox = kinds.includes("racebox");
-  const scenario = hasGoPro && hasRaceBox ? "gopro-racebox" : hasGoPro ? "gopro" : "racebox";
+  const hasGoPro = found.some((f) => f && f.kind === "video");
+  const hasLogger = found.some((f) => f && f.kind === "logger");
+  const scenario = hasGoPro && hasLogger ? "gopro-racebox" : hasGoPro ? "gopro" : "racebox";
   state.droppedFiles = files
-    .filter((_, i) => kinds[i])
-    .map((f) => ({ name: f.name, kind: classify(f) === "gopro" ? "GoPro video" : "RaceBox export", size: f.size }));
+    .map((f, i) => found[i] && { name: f.name, kind: found[i].label, size: f.size })
+    .filter(Boolean);
   start(scenario);
 }
 

@@ -5,6 +5,8 @@ python312.pkg-path = "python312"
 uv.pkg-path = "uv"
 ffmpeg.pkg-path = "ffmpeg"
 dejavu_fonts.pkg-path = "dejavu_fonts"
+# runs the prototype's file classifier in tests/test_prototype.py
+nodejs.pkg-path = "nodejs"
 # libstdc++ for numpy's manylinux wheels; macOS has it in the system.
 gcc-unwrapped.pkg-path = "gcc-unwrapped"
 gcc-unwrapped.outputs = ["lib"]
