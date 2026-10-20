@@ -61,23 +61,43 @@ adding a device would unlock.
 
 | Feature | GoPro only | GoPro + RaceBox | RaceBox only |
 |---|---|---|---|
-| Lap and run times | Approximate (estimated ±0.1 s) | Full | Full |
+| Lap and run times | Approximate (laps ±0.15 s, autocross runs ±0.7 s) | Full | Full |
 | Video overlay | Full | Full | Unavailable |
 | Delta, optimal lap | Approximate | Full | Full |
 | Racing line comparison | Unavailable | Full | Full |
 
 The ratings rest on the receivers' position error, not their sample rate.
-The app interpolates the moment the car crosses a line between two fixes,
-so 18 Hz against 25 Hz moves that moment very little; a position error
-moves it by the error divided by the car's speed. GoPro rates the HERO9's
-receiver at 2 m CEP, meaning half its fixes fall within 2 m of the true
-position; the RaceBox's error is about 0.6 m. At 30 m/s a 2 m error shifts a
-crossing by about 0.07 s, and a lap time takes two crossings, hence the
-±0.1 s estimate. The simulator models both receivers (`HERO9_NOISE`,
-`RACEBOX_NOISE` in `fugazy_delta/devices.py`) and
-`tests/test_device_noise.py` pins each to its rating. The timing figures in
-the table become tests once segmentation exists; until then they are
-estimates.
+The app interpolates the moment the car crosses a line between two fixes
+(`fugazy_delta/segment.py`), so 18 Hz against 25 Hz moves that moment very
+little; a position error moves it by the error divided by the car's speed
+at the line. GoPro rates the HERO9's receiver at 2 m CEP, meaning half its
+fixes fall within 2 m of the true position, while the RaceBox's error is
+about 0.6 m. The simulator models both receivers (`HERO9_NOISE`, `RACEBOX_NOISE`
+in `fugazy_delta/devices.py`), and `tests/test_device_noise.py` pins each
+to its rating.
+
+`tests/test_timing_accuracy.py` measures the timing that results: the
+virtual car, recorded by each simulated receiver, split into laps or runs
+and compared with the true times. Over 20 seeds (100 laps, 120 runs), the
+error in a lap or run time was:
+
+| Where the timing line is | RaceBox: RMS error / worst | GoPro only: RMS error / 19 in 20 within / worst |
+|---|---|---|
+| Track start/finish, main straight, car at 40 m/s | 0.017 s / 0.05 s | 0.06 s / 0.13 s / 0.15 s |
+| Autocross start, 3 m after launch, car at 4.5 m/s | 0.11 s / 0.42 s | 0.37 s / 0.68 s / 0.92 s |
+
+Working from the rating alone gives ±0.1 s for the GoPro: a 2 m error at
+30 m/s shifts a crossing by about 0.07 s, and a time takes two crossings.
+That holds for about 9 laps in 10, so the app claims ±0.15 s for laps. For
+autocross runs ±0.1 s is about seven times too optimistic, because the car
+crosses the start line at walking pace. The app therefore claims ±0.7 s for
+runs. In about 1 GoPro run in 17, GPS error also puts the staged car past the start line, so there is no
+crossing: the run is timed from when the car moves off and flagged, not
+counted. The RaceBox does better at the same start but still only to about
+±0.2 s for 19 runs in 20, so "Full" for its autocross run times means as
+good as GPS gets, not the event timing lights' 0.001 s. Optimal times from
+GoPro-only data come out too fast: each sector time carries the error, and
+taking the best of each picks the errors that flatter.
 
 ## 2. The system
 
@@ -109,7 +129,7 @@ one test suite.
 | Parsers | GoPro GPMF (GPS5, ACCL, GYRO), RaceBox VBO and CSV, GPX → `Telemetry` | GPMF and VBO done in phase 0; CSV and GPX to do |
 | Sync | Align devices on GPS time; handle chaptered GoPro files; fall back to matching motion data | Build |
 | Fusion | Prefer RaceBox 25 Hz position; use GoPro GPS when there is no RaceBox | Build |
-| Segmentation | Start/finish crossings, sectors, staging, out- and in-laps | Build |
+| Segmentation | Start/finish crossings, sectors, staging, out- and in-laps | Started in `segment.py`: crossings, sectors, out- and in-laps, staging, DNFs, dropouts; tested on the virtual car only |
 | Track library | Start/finish and sector lines for the tracks the user runs | Build, starting with the user's tracks |
 | Analysis | Speed against distance, delta-t, minimum corner speeds, braking points, distance-based mini-sectors | Build |
 | Optimal lap | Best mini-sector from each lap, **only from lines driven more than once**, so the result is achievable | Build |
@@ -162,7 +182,8 @@ Four layers:
 2. **Virtual car with known answers.** Because the truth is known, tests
    assert exact outcomes:
    - sync recovers the injected GoPro offset to within one video frame
-   - lap and run times within ±0.01 s of truth
+   - with perfect GPS, lap and run times within 1 ms of truth; with the
+     simulated receivers, within the errors in section 1
    - optimal lap equals the sum of the best sectors, built in on purpose:
      for example, lap 2 has the best sector 1 and lap 3 the best sector 2
    - the overlay on the frame stamped *t* shows the truth at *t*
@@ -177,7 +198,7 @@ Four layers:
 
 | Phase | Delivers | Hardware needed |
 |---|---|---|
-| 0. Foundations | Flox environment, `Telemetry` model, virtual car, VBO and GPMF codecs, synthetic GoPro MP4 (works; see `docs/spikes/gpmf-mux.md`), CI, clickable prototype tested on real people. Prototype built in `prototype/` but not yet tested on anyone. CI not started | None |
+| 0. Foundations | Flox environment, `Telemetry` model, virtual car, VBO and GPMF codecs, synthetic GoPro MP4 (works; see `docs/spikes/gpmf-mux.md`), CI, clickable prototype tested on real people. Prototype built in `prototype/` but not yet tested on anyone. CI runs every test, real GoPro files included, in the Flox environment on each push to main (`.github/workflows/ci.yml`) | None |
 | 1. Autocross results | Upload → runs, times, run-vs-run delta, from telemetry only. **The demo for the sponsorship proposal** | None |
 | 2. Track days | Track library, laps, sectors, optimal lap time | None |
 | 3. Video | Overlay render, optimal-lap composite video, top 3 losses | RaceBox and GoPro (arriving next year) |

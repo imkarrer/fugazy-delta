@@ -15,7 +15,9 @@ pytest                        # synthetic-data tests
 pytest                        # now also runs the real-file tests
 ```
 
-Or without entering a shell: `flox activate -- pytest`.
+Or without entering a shell: `flox activate -- pytest`. CI
+(`.github/workflows/ci.yml`) does the same, with the real GoPro files, on
+every push to main.
 
 ## Prototype
 
@@ -33,8 +35,10 @@ session. The event switch picks an autocross or a track day; a link
 with `?event=track` opens the track day directly. Set `PROTOTYPE_PORT` to
 use another port.
 
-Lap and run times are the simulator's ground truth, because lap detection
-does not exist yet. The feature labels are what `Session.features()`
+Lap and run times are found in the device files by
+`fugazy_delta/segment.py`, so GoPro-only times differ from RaceBox times by
+the camera's GPS error. Each lap or run is driven on its own line, so
+comparing two on the map shows two lines. The feature labels are what `Session.features()`
 returns for simulated device files written to disk and read back. The map
 and delta use the position source that session picks: the RaceBox when
 present, otherwise the GoPro's GPS. `tests/test_demo.py` regenerates the data
@@ -50,7 +54,8 @@ flox activate -c 'python -m fugazy_delta.demo prototype/data'
 | Path | What |
 |---|---|
 | `fugazy_delta/model.py` | `Telemetry`, the one data type every parser produces |
-| `fugazy_delta/sim.py` | virtual car: courses, speed profile, ground truth with known lap/sector times |
+| `fugazy_delta/sim.py` | virtual car: courses, speed profile, a line per lap, ground truth with known lap/sector times |
+| `fugazy_delta/segment.py` | laps and runs from start/finish and sector line crossings |
 | `fugazy_delta/devices.py` | simulated GNSS / RaceBox Mini sampling and noise |
 | `fugazy_delta/vbo.py` | Racelogic VBO read/write (RaceBox export format) |
 | `fugazy_delta/gpmf.py` | GoPro GPMF encode/decode, HERO9-like payloads |
