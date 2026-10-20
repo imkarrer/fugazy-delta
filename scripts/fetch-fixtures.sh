@@ -73,6 +73,13 @@ GPSBABEL=c1b6629c89bc3383fd7662cdb8942c7139e60109
 fetch GPSBabel/gpsbabel $GPSBABEL reference/track/nmea nmea/gpsbabel-track.nmea 5562f1089ac9e5793d374d39cfb2b4a3b816b530efed3c4218e0b76264719818
 fetch GPSBabel/gpsbabel $GPSBABEL reference/track/nmea.gpx nmea/gpsbabel-track.gpx 946d26139e5cd368538d507cc1fbb76543b1937b3a09e2383498ac474f392a9a
 
+# AutoSport Labs RaceCapture logs, github.com/EOSCogniton/Test-Data (no
+# licence): a Formula Student Germany autocross run (Hockenheim, 20 August
+# 2021), and a tab-separated, decimal-comma log recorded without a GPS fix.
+EOS=2c00636d78aed4005506cbde06967b7334a1366d
+fetch EOSCogniton/Test-Data $EOS "7_Invictus/Saison%202021/FSG21/FSG21%20-%20AutoX%202%20MJT.log" racecapture/fsg21-autocross.log 0e21252979fb1d90d2e0ef09978acdd18dd5e054b7b74e6e419681f24d07111a
+fetch EOSCogniton/Test-Data $EOS "1_Vulcanix/09_02_19/1/rc_0.log" racecapture/no-fix-tabs.log 22d648e3cb6f42156047fc1ed6e8d1a01f994171bd6bc344a0b7448b18c39534
+
 if [ ! -x "$DEST/gpmf_demo" ]; then
   src=$(mktemp -d)
   trap 'rm -rf "$src"' EXIT
