@@ -315,7 +315,8 @@ def position_changed(lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
 
 def epoch_rows(time: np.ndarray, rate_hz: float) -> np.ndarray:
     """Mask of the rows nearest each receiver epoch (a multiple of 1/rate
-    in UTC), for files that resample fixes onto a faster row clock."""
+    in UTC), for files that resample fixes onto a faster row clock. A row
+    more than a tenth of the fix interval from its epoch is not a fix."""
     time = np.asarray(time, dtype=np.float64)
     epoch = np.round(time * rate_hz)
     dist = np.abs(time - epoch / rate_hz)
@@ -326,7 +327,7 @@ def epoch_rows(time: np.ndarray, rate_hz: float) -> np.ndarray:
         if epoch[i] in seen:
             continue
         seen.add(epoch[i])
-        if dist[i] < 0.25 / rate_hz:
+        if dist[i] < 0.1 / rate_hz:
             out[i] = True
     return out
 

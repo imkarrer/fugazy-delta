@@ -48,6 +48,10 @@ fetch haruiz/apexai 796a1ed4c63c07b4c5a0794a1aaaefb973856660 telemetry-data/VBOX
 RACEPLEX=1edc3716a0f8e487a39bd77feec2f2f461e6e5f6
 fetch beadon/RacePlex $RACEPLEX "sample_race_files/RaceBox%20Track%20Sessionon%2021-06-2026%2013-43.csv" racebox/session.csv c4953baf0991437107bf074d983b36efe8b2840057bbbfccb37cce167e1b3824
 
+# RaceChrono Pro CSV v3 export, Massa Finalese, 4 August 2026,
+# github.com/ClassicMiniDIY/UltraLog exampleLogs/racechrono/, AGPL-3.0.
+fetch ClassicMiniDIY/UltraLog ecfb727f5877b52884caca7f503c028e29e5b524 exampleLogs/racechrono/session_massa_finalese_v3_excerpt.csv racechrono/massa-finalese-v3.csv 63acea8298e71944f5b1737a33a90739ed6d9aa31e0d6a7684dcfe9020ea7099
+
 if [ ! -x "$DEST/gpmf_demo" ]; then
   src=$(mktemp -d)
   trap 'rm -rf "$src"' EXIT
