@@ -1,11 +1,16 @@
 """Turn whatever files a driver drops in into one session.
 
 The driver never says which devices they used. Each file is identified by
-its content, and the mix of files decides the setup:
+its content (`importers.identify`), and the mix of files decides the
+setup:
 
 - GoPro only: video plus the camera's own GPS
-- GoPro + RaceBox: video, positioned by the RaceBox
-- RaceBox only: data, no video
+- GoPro + logger: video, positioned by the logger (a RaceBox, AiM, phone
+  app or any other device `importers` reads)
+- logger only: data, no video
+
+When several loggers are in the upload, the one with UTC on every sample,
+a dedicated GNSS receiver and the highest rate times the session.
 
 `Session.features()` reports what each setup can deliver, with the reason,
 so the results page can show what is available and what adding a device
@@ -24,32 +29,30 @@ from pathlib import Path
 import numpy as np
 
 from . import accuracy
-from .gpmf import Payload, decode_gps5
+from .gpmf import Payload
+from .importers import COARSE, PRECISE, Kind, Recording, UnsupportedFile, identify, importers
 from .model import Telemetry
-from .mp4 import read_gpmd
-from .vbo import read_vbo
 
-
-class UnsupportedFile(ValueError):
-    pass
-
-
-class Kind(Enum):
-    GOPRO = "gopro"
-    VBO = "vbo"
+__all__ = ["Kind", "UnsupportedFile", "identify", "Session", "Setup", "Feature", "Support", "Availability"]
 
 
 class Setup(Enum):
+    """Which kinds of device the upload has. "RaceBox" stands for any
+    data logger or lap-timer app; `Session.setup_label` names the actual
+    devices."""
+
     GOPRO_ONLY = "GoPro"
     GOPRO_RACEBOX = "GoPro + RaceBox"
     RACEBOX_ONLY = "RaceBox"
 
 
-# Which position source times each setup: the RaceBox whenever there is one.
+# Which position source times each setup when the logger is a RaceBox:
+# the RaceBox whenever there is one. Other loggers quote their own
+# profile (`Session.method`).
 METHOD = {
-    Setup.GOPRO_ONLY: "gopro",
-    Setup.GOPRO_RACEBOX: "racebox",
-    Setup.RACEBOX_ONLY: "racebox",
+    Setup.GOPRO_ONLY: COARSE,
+    Setup.GOPRO_RACEBOX: PRECISE,
+    Setup.RACEBOX_ONLY: PRECISE,
 }
 
 
@@ -73,30 +76,6 @@ class Availability:
     reason: str = ""
 
 
-def identify(path: str | Path) -> Kind:
-    """What produced this file, judged by its content, not its name."""
-    path = Path(path)
-    with open(path, "rb") as f:
-        head = f.read(4096)
-    if head[4:8] == b"ftyp":
-        try:
-            read_gpmd(path)
-        except ValueError as exc:
-            raise UnsupportedFile(
-                f"{path.name}: video has no GoPro telemetry. Upload the original "
-                "file from the camera's SD card, not an edited or exported copy. "
-                "(The HERO12 records no GPS.)"
-            ) from exc
-        return Kind.GOPRO
-    text = head.decode("latin-1").lower()
-    if "[column names]" in text or "file created on" in text:
-        return Kind.VBO
-    raise UnsupportedFile(
-        f"{path.name}: not a GoPro video or a VBO export. From RaceBox, export "
-        "the session as VBO on racebox.pro."
-    )
-
-
 _GOPRO_NAME = re.compile(r"^G[HXL](\d{2})(\d{4})\.MP4$", re.IGNORECASE)
 
 
@@ -114,6 +93,7 @@ class Video:
     path: Path
     payloads: list[Payload]
     gps: Telemetry | None  # None when the camera never got a fix
+    device: str = "GoPro"
 
 
 def _concat(parts: list[Telemetry], source: str) -> Telemetry:
@@ -134,9 +114,34 @@ def _overlaps(a: Telemetry, b: Telemetry) -> bool:
 
 
 @dataclass
+class Logger:
+    """All the files one non-camera device produced, joined in time order."""
+
+    device: str
+    kind: Kind
+    profile: str
+    telemetry: Telemetry
+    recordings: list[Recording]
+
+    @property
+    def utc(self) -> bool:
+        return all(r.utc for r in self.recordings)
+
+    @property
+    def laps(self) -> list[float]:
+        return sorted(t for r in self.recordings for t in r.laps)
+
+
+def _rank(logger: Logger) -> tuple:
+    """Which logger times the session: one with UTC on every sample first,
+    then a dedicated GNSS logger over a phone, then the highest rate."""
+    return (logger.utc, logger.profile == PRECISE, logger.telemetry.sample_rate)
+
+
+@dataclass
 class Session:
     videos: list[Video] = field(default_factory=list)
-    logger: Telemetry | None = None
+    loggers: list[Logger] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
     @classmethod
@@ -144,22 +149,35 @@ class Session:
         if not paths:
             raise UnsupportedFile("no files uploaded")
         session = cls()
-        logs = []
+        readers = {i.kind: i.read for i in importers()}
+        groups: dict[tuple[str, Kind], list[Recording]] = {}
         for path in sorted(map(Path, paths), key=_recording_order):
-            kind = identify(path)
-            if kind is Kind.GOPRO:
-                payloads = read_gpmd(path)
-                try:
-                    gps = decode_gps5(payloads)
-                except ValueError:
-                    gps = None
-                session.videos.append(Video(path, payloads, gps))
+            recording = readers[identify(path)](path)
+            if recording.camera:
+                session.videos.append(Video(path, recording.payloads or [], recording.telemetry, recording.device))
+            elif recording.telemetry is None or not len(recording.telemetry):
+                session.warnings.append(f"{path.name}: {recording.device} file has no GPS fixes.")
             else:
-                logs.append(read_vbo(path, source="racebox"))
-        if logs:
-            session.logger = _concat(logs, "racebox")
+                groups.setdefault((recording.device, recording.kind), []).append(recording)
+            for w in recording.warnings:
+                if w not in session.warnings:
+                    session.warnings.append(w)
+        for (device, kind), recs in groups.items():
+            source = recs[0].telemetry.source
+            session.loggers.append(Logger(device, kind, recs[0].profile,
+                                          _concat([r.telemetry for r in recs], source), recs))
+        session.loggers.sort(key=_rank, reverse=True)
         session._check()
         return session
+
+    @property
+    def primary(self) -> Logger | None:
+        """The logger whose positions time the session."""
+        return self.loggers[0] if self.loggers else None
+
+    @property
+    def logger(self) -> Telemetry | None:
+        return self.primary.telemetry if self.primary else None
 
     def _check(self) -> None:
         if self.videos and self.logger is None and self.camera_gps is None:
@@ -170,8 +188,13 @@ class Session:
             )
         if self.logger is not None and self.camera_gps is not None and not _overlaps(self.logger, self.camera_gps):
             self.warnings.append(
-                "The RaceBox and GoPro recordings don't overlap in time. "
+                f"The {self.primary.device} and GoPro recordings don't overlap in time. "
                 "Are they from the same session?"
+            )
+        for other in self.loggers[1:]:
+            self.warnings.append(
+                f"Timed from the {self.primary.device} file; the {other.device} file "
+                "was read but not used for timing."
             )
 
     @property
@@ -186,14 +209,24 @@ class Session:
         return Setup.GOPRO_ONLY if self.videos else Setup.RACEBOX_ONLY
 
     @property
+    def setup_label(self) -> str:
+        """The setup in device names: 'GoPro + AiM', 'RaceChrono'."""
+        names = []
+        if self.videos:
+            names.append("GoPro")
+        if self.primary:
+            names.append(self.primary.device)
+        return " + ".join(names)
+
+    @property
     def position(self) -> Telemetry | None:
-        """The best position source: the RaceBox when present, else the camera."""
+        """The best position source: a logger when present, else the camera."""
         return self.logger if self.logger is not None else self.camera_gps
 
     @property
     def method(self) -> str:
         """The position source's key in the accuracy table."""
-        return METHOD[self.setup]
+        return self.primary.profile if self.primary else COARSE
 
     def features(self, event: str | None = None) -> dict[Feature, Availability]:
         """What this setup delivers. `event` ("track" or "autocross") picks
@@ -212,33 +245,39 @@ class Session:
                 parts.append(f"{accuracy.label(quantity, e)}{'' if event else f' ({e})'}: {err.summary()}.")
             return " ".join(parts)
 
-        if self.setup is Setup.GOPRO_ONLY:
+        overlay = Availability(Support.FULL) if self.videos else Availability(
+            Support.UNAVAILABLE, "Add your GoPro video for an overlay.")
+
+        if method == COARSE:
             add_racebox = "Add a RaceBox file for full accuracy."
-            camera = "GoPro GPS is accurate to about 2 m."
+            if self.primary is None:
+                gps = "GoPro GPS is accurate to about 2 m."
+            else:
+                gps = (f"{self.primary.device} GPS is a phone or unknown receiver, "
+                       "quoted with the GoPro's measured error (about 2 m).")
             slow_start = {
                 None: " Autocross runs fare worst, because the car crosses the start line at walking pace.",
                 "autocross": " Most of that error is at the start line, which the car crosses at walking pace.",
                 "track": "",
             }[event]
             return {
-                Feature.LAP_TIMES: Availability(Support.APPROXIMATE, f"{camera} {quote('lap')}{slow_start} {add_racebox}"),
-                Feature.VIDEO_OVERLAY: Availability(Support.FULL),
+                Feature.LAP_TIMES: Availability(Support.APPROXIMATE, f"{gps} {quote('lap')}{slow_start} {add_racebox}"),
+                Feature.VIDEO_OVERLAY: overlay,
                 Feature.DELTA: Availability(Support.APPROXIMATE, (
-                    f"{camera} {quote('sector')} Small gains and losses may not be real. {add_racebox}"
+                    f"{gps} {quote('sector')} Small gains and losses may not be real. {add_racebox}"
                 )),
                 Feature.OPTIMAL: Availability(Support.APPROXIMATE, (
-                    f"{camera} {quote('optimal')} It comes out too fast because taking the best of each "
+                    f"{gps} {quote('optimal')} It comes out too fast because taking the best of each "
                     f"sector also picks the sectors whose GPS error flattered them. {add_racebox}"
                 )),
                 Feature.LINE_COMPARISON: Availability(Support.UNAVAILABLE, "Comparing lines needs sub-metre accuracy. Add a RaceBox file."),
             }
 
-        overlay = Availability(Support.FULL) if self.videos else Availability(
-            Support.UNAVAILABLE, "Add your GoPro video for an overlay.")
+        device = self.primary.device
         return {
-            Feature.LAP_TIMES: Availability(Support.FULL, f"RaceBox GPS. {quote('lap')}"),
+            Feature.LAP_TIMES: Availability(Support.FULL, f"{device} GPS. {quote('lap')}"),
             Feature.VIDEO_OVERLAY: overlay,
-            Feature.DELTA: Availability(Support.FULL, f"RaceBox GPS. {quote('sector')}"),
-            Feature.OPTIMAL: Availability(Support.FULL, f"RaceBox GPS. {quote('optimal')}"),
+            Feature.DELTA: Availability(Support.FULL, f"{device} GPS. {quote('sector')}"),
+            Feature.OPTIMAL: Availability(Support.FULL, f"{device} GPS. {quote('optimal')}"),
             Feature.LINE_COMPARISON: Availability(Support.FULL),
         }

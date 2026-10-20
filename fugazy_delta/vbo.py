@@ -22,6 +22,7 @@ from pathlib import Path
 
 import numpy as np
 
+from .importers import COARSE, PRECISE, Kind, Recording, register
 from .model import Telemetry
 
 _ALIASES = {
@@ -162,3 +163,44 @@ def write_vbo(telemetry: Telemetry, path: str | Path, satellites: int = 12, comm
 
 def _num(value: float, fmt: str) -> str:
     return format(0.0 if np.isnan(value) else value, fmt)
+
+
+# ---------- importer ----------
+
+# Who wrote a VBO file, from words in its comments or header, and whether
+# it is a dedicated GNSS logger (see importers.PRECISE).
+_WRITERS = (
+    ("racebox", "RaceBox", True),
+    ("racelogic", "Racelogic VBOX", True),
+    ("vbox", "Racelogic VBOX", True),
+    ("racechrono", "RaceChrono", False),
+    ("trackaddict", "TrackAddict", False),
+    ("harry", "Harry's LapTimer", False),
+    ("dragy", "dragy", False),
+)
+
+
+def _sniff(head) -> bool:
+    text = head.text[:8192].lower()
+    return "[column names]" in text or "file created on" in text
+
+
+def vbo_writer(text: str) -> tuple[str, bool]:
+    """(device name, dedicated logger?) from a VBO file's text."""
+    preamble = text.split("[data]", 1)[0].lower()
+    for word, name, precise in _WRITERS:
+        if word in preamble:
+            return name, precise
+    return "VBO logger", False
+
+
+@register(Kind.VBO, _sniff)
+def read_vbo_recording(path: Path) -> Recording:
+    text = Path(path).read_text(encoding="utf-8", errors="replace")
+    device, precise = vbo_writer(text)
+    telemetry = read_vbo(path, source=_slug(device))
+    return Recording(Kind.VBO, telemetry, device, profile=PRECISE if precise else COARSE)
+
+
+def _slug(device: str) -> str:
+    return "".join(c for c in device.split()[0].lower() if c.isalnum())
